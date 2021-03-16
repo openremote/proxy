@@ -25,6 +25,9 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
+      - uses: styfle/cancel-workflow-action@0.8.0
+        with:
+          access_token: ${{ github.token }}
       - name: Set tag
         if: github.event.inputs.tag != ''
         run: echo "TAG=${{ github.event.inputs.tag || env.TAG }}" >> $GITHUB_ENV
