@@ -4,21 +4,30 @@ name: build multirach proxy Docker image and push to it dockerhub
 
 # Controls when the action will run. 
 on:
-  # Triggers the workflow on push or pull request events but only for the master branch
-  push:
-    branches: [ master ]
-
-  # Allows you to run this workflow manually from the Actions tab
+  # Manually trigger for a release
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'What tag should be used for the release.'
+        required: true
 
-env:
-  PLATFORM: linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6
+  # Trigger on push for latest build
+  push:
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   image_proxy:
+  
+    env:
+      PLATFORM: linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6
+      TAG: latest
+      
     runs-on: ubuntu-latest
+    
     steps:
+      - name: Set tag
+        if: github.event.inputs.tag != ''
+        run: echo "TAG=${{ github.event.inputs.tag || env.TAG }}" >> $GITHUB_ENV
       - uses: actions/checkout@v2
       - name: set up QEMU
         uses: docker/setup-qemu-action@v1
@@ -36,4 +45,4 @@ jobs:
         run: echo "${{ secrets.DOCKERHUB_PASSWORD }}" | docker login -u "${{ secrets.DOCKERHUB_USER }}" --password-stdin
       - name: build and push images
         run: |
-          docker build --push --platform $PLATFORM -t openremote/proxy:latest proxy
+          docker build --push --platform $PLATFORM -t openremote/proxy:$TAG .
