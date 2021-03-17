@@ -4,15 +4,14 @@ name: Docker Image
 
 # Controls when the action will run. 
 on:
-  # Manually trigger for a release
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'What tag should be used for the release.'
-        required: true
+  # When a release is published
+  release:
+    types: [published]
 
-  # Trigger on push for latest build
+  # Trigger on push for latest build ignoring tag pushes
   push:
+    tags-ignore:
+      - '*.*'
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
@@ -29,8 +28,7 @@ jobs:
         with:
           access_token: ${{ github.token }}
       - name: Set tag
-        if: github.event.inputs.tag != ''
-        run: echo "TAG=${{ github.event.inputs.tag || env.TAG }}" >> $GITHUB_ENV
+        run: echo "TAG=${{ github.event.release.tag_name || env.TAG }}" >> $GITHUB_ENV
       - uses: actions/checkout@v2
       - name: set up QEMU
         uses: docker/setup-qemu-action@v1
