@@ -17,10 +17,15 @@ LE_CMD="/usr/bin/certbot certonly --config-dir ${LE_WORK_DIR} -w ${LE_WEB_ROOT} 
 mkdir -p $LE_CERT_ROOT
 
 # Configure haproxy
+if [ -n "${HAPROXY_CONFIG}" ]; then
+    export CONFIG_FILE="${HAPROXY_CONFIG}"
+else
+    export CONFIG_FILE="/etc/haproxy/haproxy.cfg"
+fi
 if [ -n "${LOCAL_CERT_FILE}" ]; then
     export CERT_FILE="${LOCAL_CERT_FILE}"
     export LOCAL_CERT_DIR="$(dirname ${LOCAL_CERT_FILE})"
-    HAPROXY_CONFIG="/etc/haproxy/haproxy.cfg"
+    HAPROXY_CONFIG="${CONFIG_FILE}"
     INIT=false
 else
     export CERT_FILE="/opt/selfsigned/localhost.pem"
@@ -31,7 +36,7 @@ else
       INIT=true
       HAPROXY_CONFIG="/etc/haproxy/haproxy-init.cfg"
     else
-      HAPROXY_CONFIG="/etc/haproxy/haproxy.cfg"
+      HAPROXY_CONFIG="${CONFIG_FILE}"
       INIT=false
     fi
 fi
@@ -120,7 +125,7 @@ function restart {
         log_info "Waiting for certificate '${CERT_FILE}' to exist..."
         while ! ls -l "${CERT_FILE}" >/dev/null 2>&1; do sleep 0.1; done
         log_info "Certificate '${CERT_FILE}' now exists!"
-        HAPROXY_CONFIG="/etc/haproxy/haproxy.cfg"
+        HAPROXY_CONFIG="${CONFIG_FILE}"
         HAPROXY_CMD="haproxy -f ${HAPROXY_CONFIG} ${HAPROXY_USER_PARAMS} -D -p ${HAPROXY_PID_FILE}"
         HAPROXY_CHECK_CONFIG_CMD="haproxy -f ${HAPROXY_CONFIG} -c"
 
