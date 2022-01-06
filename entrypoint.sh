@@ -423,13 +423,10 @@ cron_auto_renewal_init() {
 }
 
 cron_auto_renewal() {
-    # CRON_TIME can be set via environment
-    # If not defined, the default is daily
-    CRON_TIME=${CRON_TIME:-@daily}
-    log_info "Scheduling cron job with execution time ${CRON_TIME}"
-    echo "${CRON_TIME} root /entrypoint.sh auto-renew >> ${LOGFILE} 2>&1" > /etc/cron.d/letsencrypt
+    # Add daily cron script to renew certs as required
+	cp /cron.sh /etc/periodic/daily/
 
-    # Start crond
+    # Start crond if not already started
     crond
 }
 

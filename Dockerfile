@@ -52,7 +52,9 @@ ADD selfsigned /opt/selfsigned
 
 ADD cli.ini /root/.config/letsencrypt/
 ADD entrypoint.sh /
+ADD cron.sh /
 RUN chmod +x /entrypoint.sh
+RUN chmod +x /cron.sh
 
 EXPOSE 80 443 8883
 
