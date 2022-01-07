@@ -40,7 +40,7 @@ RUN mkdir /etc/haproxy && cd /etc/haproxy \
     && tar xvf acme-plugin.tar.gz --strip-components=1 --no-anchored acme-http01-webroot.lua \
     && rm *.tar.gz && cd
 	
-RUN apk del tar curl && \
+RUN apk del tar && \
     rm -f /var/cache/apk/*
 
 RUN mkdir /opt/selfsigned
@@ -58,7 +58,7 @@ RUN chmod +x /cron.sh
 
 EXPOSE 80 443 8883
 
-HEALTHCHECK --interval=3s --timeout=3s --start-period=2s --retries=30 CMD curl --fail --silent http://localhost:80 || exit 1
+HEALTHCHECK --interval=3s --timeout=3s --start-period=2s --retries=30 CMD curl --fail --silent http://127.0.0.1:80 || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["run"]
