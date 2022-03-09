@@ -10,6 +10,8 @@ LE_EXTRA_ARGS=""
 mkdir -p $LE_WEB_ROOT
 if [ -n "${LE_EMAIL}" ]; then
   LE_EXTRA_ARGS="${LE_EXTRA_ARGS} --email ${LE_EMAIL}"
+else
+  LE_EXTRA_ARGS="${LE_EXTRA_ARGS} --register-unsafely-without-email"
 fi
 if [ -n "${LE_RSA_KEY_SIZE}" ]; then
   LE_EXTRA_ARGS="${LE_EXTRA_ARGS} --rsa-key-size ${LE_RSA_KEY_SIZE}"
