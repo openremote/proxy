@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# Regex for IP address or string without a '.'
+IP_REGEX='(^([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}$)|(^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$)|(^[^\.]+$)'
+
 # Configure letsencrypt
 export LE_WEB_ROOT="/deployment/acme-webroot"
 LE_EXTRA_ARGS=""
@@ -31,10 +34,12 @@ if [ -n "${LOCAL_CERT_FILE}" ]; then
     INIT=false
 else
     export CERT_FILE="/opt/selfsigned/localhost.pem"
-    if [ -n "${DOMAINNAME}" ] && [ "${DOMAINNAME}" != "localhost" ]; then
+
+    # Domain name must not be an IP address and must contain at least one '.' for cert generation
+    if [ -n "${DOMAINNAME}" ] && [[ ! "${DOMAINNAME}" =~ $IP_REGEX ]]; then
       export CERT_FILE="${LE_CERT_ROOT}/${DOMAINNAME}/haproxy.pem"
     fi
-	if [ ! -f "${CERT_FILE}" ]; then
+    if [ ! -f "${CERT_FILE}" ]; then
       INIT=true
       HAPROXY_CONFIG="/etc/haproxy/haproxy-init.cfg"
     else
@@ -390,7 +395,8 @@ die() {
 cron_auto_renewal_init() {
   log_info "Executing cron_auto_renewal_init at $(date -R)"
 
-  if [ -n "${DOMAINNAME}" ] && [ "${DOMAINNAME}" != "localhost" ]; then
+  # Domain name must not be an IP address and must contain at least one '.' for cert generation
+  if [ -n "${DOMAINNAME}" ] && [[ ! "${DOMAINNAME}" =~ $IP_REGEX ]]; then
     if [ ! -d "${LE_CERT_ROOT}/${DOMAINNAME}" ]; then
       log_info "Initialising certificate for '${DOMAINNAME}'..."
       rm -rf "${LE_CERT_ROOT}/${DOMAINNAME}"
