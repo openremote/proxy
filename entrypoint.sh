@@ -308,6 +308,9 @@ cron_auto_renewal_init() {
   # Init cron job to renew certs
   cron_auto_renewal
 
+  # Take checksum of haproxy certs so we can tell if we need to restart as inotify is not running yet
+  CERT_SHA1=$(sha1sum ${CERT_DIR}/* | sha1sum)
+
   # Iterate through domain names and check/create certificates
   # certbot certificates doesn't seem to work so check directories exist manually
   IFS_OLD=$IFS
@@ -350,12 +353,20 @@ cron_auto_renewal_init() {
     if [ ! -d "${LE_DIR}/live/${CERT}" ]; then
       log_info "Removing obsolete haproxy certificate chain for '$CERT'"
       rm -f $f
+      CERTS_MODIFIED=true
     fi
   done
   IFS=$IFS_OLD
 
   # Run renew in case any existing certs need updating
   auto_renew
+
+  CERT_SHA2=$(sha1sum ${CERT_DIR}/* | sha1sum)
+
+  if [ "$CERT_SHA1" != "$CERT_SHA2" ]; then
+    log_info "HAProxy certs have been modified so restarting"
+    restart
+  fi
 }
 
 cron_auto_renewal() {
