@@ -4,10 +4,7 @@
 IP_REGEX='(^([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}$)|(^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$)|(^[^\.]+$)'
 
 # Configure letsencrypt
-export LE_WEB_ROOT="/deployment/acme-webroot"
 LE_EXTRA_ARGS=""
-
-mkdir -p $LE_WEB_ROOT
 if [ -n "${LE_EMAIL}" ]; then
   LE_EXTRA_ARGS="${LE_EXTRA_ARGS} --email ${LE_EMAIL}"
 else
@@ -16,42 +13,34 @@ fi
 if [ -n "${LE_RSA_KEY_SIZE}" ]; then
   LE_EXTRA_ARGS="${LE_EXTRA_ARGS} --rsa-key-size ${LE_RSA_KEY_SIZE}"
 fi
-LE_WORK_DIR="/deployment/letsencrypt"
-export LE_CERT_ROOT="${LE_WORK_DIR}/live"
-LE_ARCHIVE_ROOT="${LE_WORK_DIR}/archive"
-LE_RENEWAL_CONFIG_ROOT="${LE_WORK_DIR}/renewal"
-LE_CMD="certbot certonly --config-dir ${LE_WORK_DIR} -w ${LE_WEB_ROOT} ${LE_EXTRA_ARGS}"
-mkdir -p $LE_CERT_ROOT
+
+LE_CMD="certbot certonly -w ${CHROOT_DIR} ${LE_EXTRA_ARGS}"
 
 # Configure haproxy
-if [ -n "${HAPROXY_CONFIG}" ]; then
-    export CONFIG_FILE="${HAPROXY_CONFIG}"
-else
-    export CONFIG_FILE="/etc/haproxy/haproxy.cfg"
-fi
-if [ -n "${LOCAL_CERT_FILE}" ]; then
-    export CERT_FILE="${LOCAL_CERT_FILE}"
-	export LOCAL_CERT_DIR="$(dirname "${LOCAL_CERT_FILE}")"
-    HAPROXY_CONFIG="${CONFIG_FILE}"
-    INIT=false
-else
-    export CERT_FILE="/opt/selfsigned/localhost.pem"
-
-    # Domain name must not be an IP address and must contain at least one '.' for cert generation
-    if [ -n "${DOMAINNAME}" ] && [[ ! "${DOMAINNAME}" =~ $IP_REGEX ]]; then
-      export CERT_FILE="${LE_CERT_ROOT}/${DOMAINNAME}/haproxy.pem"
-    fi
-    if [ ! -f "${CERT_FILE}" ]; then
-      INIT=true
-      HAPROXY_CONFIG="/etc/haproxy/haproxy-init.cfg"
-    else
-      HAPROXY_CONFIG="${CONFIG_FILE}"
-      INIT=false
-    fi
-fi
-HAPROXY_PID_FILE="/var/run/haproxy.pid"
 HAPROXY_CMD="haproxy -f ${HAPROXY_CONFIG} ${HAPROXY_USER_PARAMS} -D -p ${HAPROXY_PID_FILE}"
+HAPROXY_START_OPTIONS="-st \$(cat \$HAPROXY_PID_FILE)"
+HAPROXY_RESTART_OPTIONS="-sf \$(cat \$HAPROXY_PID_FILE) -x /var/run/haproxy.sock"
 HAPROXY_CHECK_CONFIG_CMD="haproxy -f ${HAPROXY_CONFIG} -c"
+
+INITIALISED=false
+
+# Make dirs and files
+mkdir -p /deployment/letsencrypt/live
+mkdir -p /deployment/certs
+touch /var/run/haproxy.pid
+
+if [ "$DOMAINNAME" == 'localhost' ]; then
+  # To maintain support for existing setups
+  unset DOMAINNAME
+fi
+
+if [ -n "$DOMAINNAME" ]; then
+  if [ -n "$DOMAINNAMES" ]; then
+    DOMAINNAMES="$DOMAINNAMES,$DOMAINNAME"
+  else
+    DOMAINNAMES="$DOMAINNAME"
+  fi
+fi
 
 print_help() {
   echo "Available commands:"
@@ -64,123 +53,93 @@ print_help() {
   echo "renew                   - Renew the certificate for an existing domain. Allows to add additional domain names."
   echo "remove                  - Remove and existing domain and its certificate"
   echo "cron-auto-renewal       - Run the cron job automatically renewing all certificates"
-  echo "cron-auto-renewal-init  - Obtain missing certificates and automatically renew afterwards"
+  echo "cron-auto-renewal-init  - Obtain missing certificates, purge obsolete and automatically calls renew"
   echo "auto-renew              - Try to automatically renew all installed certificates"
   echo "print-pin               - Print the public key pin for a given domain for usage with HPKP"
+  echo "sync-haproxy            - Deploy hook for certbot to synchronise haproxy cert chains"
 }
 
 check_proxy() {
     log_info "Checking HAProxy configuration: $HAPROXY_CONFIG"
     $HAPROXY_CHECK_CONFIG_CMD
+    return $?
 }
 
-start_with_certificate() {
-    if [ -n "${LOCAL_CERT_FILE}" ]; then
-        log_info "Using the certificate LOCAL_CERT_FILE: ${LOCAL_CERT_FILE}"
+run_proxy() {
+    if check_proxy; then
+      log_info "HAProxy starting"
+      eval "$HAPROXY_CMD $HAPROXY_START_OPTIONS"
+      ret=$?
 
-        check_proxy
-		
-		log_info "HAProxy starting"
-		
-        $HAPROXY_CMD
-		ret=$?
-		
-        if [ $ret -ne 0 ]; then
-			log_info "HAProxy start failed"
-			exit $ret; 
-		fi
-        log_info "HAProxy started with $HAPROXY_CONFIG config, pid $(cat $HAPROXY_PID_FILE)."
+      if [ $ret -ne 0 ]; then
+        log_info "HAProxy start failed"
+      else
+        log_info "HAProxy started with '$HAPROXY_CONFIG' config, pid = $(cat $HAPROXY_PID_FILE)."
+        cron_auto_renewal_init
+        INITIALISED=true
+      fi
+    else
+      log_error "Cannot start proxy until config file errors are resolved in '$HAPROXY_CONFIG'"
+    fi
 
+    while true; do
+      log_info "Monitoring config file '$HAPROXY_CONFIG' and certs in '$CERT_DIR' for changes..."
 
-        # Wait if config or certificates were changed, block this execution
-		inotifywait -q -r --exclude '\.git/' -e modify,create,delete,move,move_self $HAPROXY_CONFIG "$LOCAL_CERT_DIR" |
+      # Wait if config or certificates were changed, block this execution
+      inotifywait -q -r --exclude '\.git/' -e modify,create,delete,move,move_self "$HAPROXY_CONFIG" "$CERT_DIR" |
         while read events; do
             log_info "Change detected..."
             sleep 5
             restart
-            log_info "Monitoring config file $HAPROXY_CONFIG and certs in $LOCAL_CERT_DIR for changes..."
         done
-    else
-        log_error"No certificate found for $LOCAL_CERT_FILE"
-    fi
-}
-
-run_proxy() {
-    # Start rsyslogd
-	rsyslogd
-
-    check_proxy
-
-    log_info "HAProxy starting"
-	
-    $HAPROXY_CMD
-	ret=$?
-	
-    if [ $ret -ne 0 ]; then
-		log_info "HAProxy start failed"
-		exit $ret; 
-	fi
-    log_info "HAProxy started with $HAPROXY_CONFIG config, pid $(cat $HAPROXY_PID_FILE). cert $HAPROXY_CERT_FILE"
-
-    cron_auto_renewal_init
-
-    # Cert file should now exist
-    if [ "$INIT" = true ]; then
-        restart
-    fi
-
-    log_info "Monitoring config file $HAPROXY_CONFIG and certs in $LE_CERT_ROOT for changes..."
-
-    # Wait if config or certificates were changed, block this execution
-	inotifywait -q -r --exclude '\.git/' -e modify,create,delete,move,move_self $HAPROXY_CONFIG $LE_CERT_ROOT |
-    while read events; do
-        log_info "Change detected..."
-        sleep 5
-        restart
-        log_info "Monitoring config file $HAPROXY_CONFIG and certs in $LE_CERT_ROOT for changes..."
     done
 }
 
 restart() {
-      if [ -f $HAPROXY_PID_FILE ]; then
-        log_info "Restarting HAProxy..."
 
-        # Wait for the certificate to be present before restarting or might interrupt cert generation/renewal
-        log_info "Waiting for certificate '${CERT_FILE}' to exist..."
-        while ! ls -l "${CERT_FILE}" >/dev/null 2>&1; do sleep 0.1; done
-        log_info "Certificate '${CERT_FILE}' now exists!"
-        HAPROXY_CONFIG="${CONFIG_FILE}"
-        HAPROXY_CMD="haproxy -f ${HAPROXY_CONFIG} ${HAPROXY_USER_PARAMS} -D -p ${HAPROXY_PID_FILE}"
-        HAPROXY_CHECK_CONFIG_CMD="haproxy -f ${HAPROXY_CONFIG} -c"
+  log_info "HAProxy restart requested..."
 
-        log_info "HAPROXY_CONFIG: ${HAPROXY_CONFIG}"
-        log_info "HAPROXY_CMD: ${HAPROXY_CMD}"
+  if check_proxy; then
+    PID=$(cat $HAPROXY_PID_FILE)
+    if [ -z "$PID" ] || ! pgrep -P $PID > /dev/null; then
+      log_info "HAProxy is not running so starting"
+      eval "$HAPROXY_CMD $HAPROXY_START_OPTIONS"
+    else
+      log_info "HAProxy restarting"
+      eval "$HAPROXY_CMD $HAPROXY_RESTART_OPTIONS"
+    fi
 
-        if $HAPROXY_CHECK_CONFIG_CMD; then
-          $HAPROXY_CMD -st "$(cat $HAPROXY_PID_FILE)"
-          log_info "HAProxy restarted, pid $(cat $HAPROXY_PID_FILE)."
-        else
-          log_info "HAProxy config invalid, not restarting..."
-        fi
-      else
-        log_error "Error: no $HAPROXY_PID_FILE present, HAProxy exited."
-        return
-      fi
+    ret=$?
+
+    if [ $ret -ne 0 ]; then
+      log_info "HAProxy start/restart failed"
+    fi
+    log_info "HAProxy started/restarted with '$HAPROXY_CONFIG' config, pid = $(cat $HAPROXY_PID_FILE)."
+  else
+    log_info "HAProxy config invalid, not restarting..."
+  fi
 }
 
 add() {
   if [ $# -lt 1 ]
   then
     echo 'Usage: add <domain name> <alternative domain name>...'
-    exit 1
+    return 1
   fi
 
   DOMAINNAME="${1}"
-  DOMAIN_FOLDER="${LE_CERT_ROOT}/${DOMAINNAME}"
+  DOMAIN_FOLDER="${LE_DIR}/live/{DOMAINNAME}"
+
+  # Basic invalid DOMAINNAME check
+  # Current ash shell on alpine needs regex to be quoted this isn't the case for newer bash shell versions hence the double check
+  if [[ "$DOMAINNAME" =~ $IP_REGEX ]] || [[ "$DOMAINNAME" =~ "$IP_REGEX" ]]; then
+    log_info "Domain is an IP address or simple hostname so ignoring cert request '$DOMAINNAME'"
+    return 2
+  fi
 
   if [ -e "${DOMAIN_FOLDER}" ]; then
-    log_error "Domain ${1} already exists."
-    exit 3
+    log_error "Domain '${DOMAINNAME}' already exists."
+    return 3
   fi
 
   log_info "Adding domain \"${DOMAINNAME}\"..."
@@ -192,19 +151,25 @@ add() {
     fi
   done
 
-  ${LE_CMD} "${DOMAIN_ARGS}" || die "Failed to issue certificate "
+  eval "$LE_CMD $DOMAIN_ARGS"
+  ret=$?
+
+  if [ $ret -ne 0 ]; then
+   >&2 log_error "Failed to generate certificate either haproxy configuration is incorrect or TLD not supported"
+   return $ret
+  fi
 
   # Concat the certificate chain and private key to a PEM file suitable for HAProxy
   cat "${DOMAIN_FOLDER}/privkey.pem" \
    "${DOMAIN_FOLDER}/fullchain.pem" \
    > "/tmp/haproxy.pem"
-   mv "/tmp/haproxy.pem" "${DOMAIN_FOLDER}/haproxy.pem"
-  
+   mv "/tmp/haproxy.pem" "${CERT_DIR}/${DOMAINNAME}"
+
   ret=$?
 
   if [ $ret -ne 0 ]; then
-   >&2 log_error "failed to create haproxy.pem file!"
-   exit 2
+   >&2 log_error "Failed to create haproxy.pem file for '$DOMAINNAME'"
+   return $ret
   fi
 
   log_info "Added domain \"${DOMAINNAME}\"..."
@@ -214,15 +179,15 @@ renew() {
   if [ $# -lt 1 ]
   then
     echo 'Usage: renew <domain name> <alternative domain name>...'
-    exit 1
+    return 1
   fi
 
   DOMAINNAME="${1}"
-  DOMAIN_FOLDER="${LE_CERT_ROOT}/${DOMAINNAME}"
+  DOMAIN_FOLDER="${LE_DIR}/live/${DOMAINNAME}"
 
   if [ ! -d "${DOMAIN_FOLDER}" ]; then
     log_error "Domain ${DOMAINNAME} does not exist! Cannot renew it."
-    exit 6
+    return 6
   fi
 
   log_info "Renewing domain \"${DOMAINNAME}\"..."
@@ -234,7 +199,7 @@ renew() {
     fi
   done
 
-  ${LE_CMD} --renew-by-default --expand "${DOMAIN_ARGS}"
+  eval "$LE_CMD --force-renewal --expand $DOMAIN_ARGS"
 
   LE_RESULT=$?
 
@@ -247,87 +212,40 @@ renew() {
   cat "${DOMAIN_FOLDER}/privkey.pem" \
    "${DOMAIN_FOLDER}/fullchain.pem" \
    > "/tmp/haproxy.pem"
-   mv "/tmp/haproxy.pem" "${DOMAIN_FOLDER}/haproxy.pem"
+   mv "/tmp/haproxy.pem" "${CERT_DIR}/${DOMAINNAME}"
 
   ret=$?
   
   if [ $ret -ne 0 ]; then
    >&2 log_error "failed to create haproxy.pem file!"
-   return 2
+   return $ret
   fi
 
   log_info "Renewed domain \"${DOMAINNAME}\"..."
 }
 
-# check certificate expiration and run certificate issue requests
-# for those that expire in under 4 weeks
 auto_renew() {
   log_info "Executing auto renew at $(date -R)"
-  exitcode=0
-  for dir in ${LE_CERT_ROOT}/*/
-  do
-	cert="${dir}cert.pem"
-	CERT_DIR_PATH=$(dirname ${cert})
-    DOMAINNAME=$(basename "${CERT_DIR_PATH}")
-
-    if ! openssl x509 -noout -checkend $((4*7*86400)) -in "${cert}"; then
-      subject="$(openssl x509 -noout -subject -in "${cert}" | grep -o -E 'CN=[^ ,]+' | tr -d 'CN=')"
-      subjectaltnames="$(openssl x509 -noout -text -in "${cert}" | sed -n '/X509v3 Subject Alternative Name/{n;p}' | sed 's/\s//g' | tr -d 'DNS:' | sed 's/,/ /g')"
-      domains="${subject}"
-      for name in ${subjectaltnames}; do
-        if [ "${name}" != "${subject}" ]; then
-          domains="${domains} ${name}"
-        fi
-      done
-	  
-      renew "${domains}"
-	  
-	  ret=$?
-	  
-      if [ $ret -ne 0 ]
-      then
-        log_error "failed to renew certificate for ${DOMAINNAME}!"
-        exitcode=1
-      else
-        log_info "renewed certificate for ${DOMAINNAME}"
-      fi
-    else
-      log_info "Certificate for ${DOMAINNAME} does not require renewal."
-    fi
-  done
+  certbot renew --deploy-hook "/entrypoint.sh sync-haproxy"
 }
 
 list() {
-  OUTPUT="DOMAINNAME@ALTERNATIVE DOMAINNAMES@VALID UNTIL@REMAINING DAYS\n"  
-  for dir in ${LE_CERT_ROOT}/*/
-  do
-    cert="${dir}cert.pem"
-    enddate_str=$(openssl x509 -enddate -noout -in "$cert" | sed 's/.*=//g')
-    enddate=$(date --date="$enddate_str" +%s)
-    now=$(date +%s)
-    remaining_days=$(( (enddate - now) / 60 / 60 / 24 ))
-    subject="$(openssl x509 -noout -subject -in "${cert}" | grep -o -E 'CN=[^ ,]+' | tr -d 'CN=')"
-    subjectaltnames="$(openssl x509 -noout -text -in "${cert}" | sed -n '/X509v3 Subject Alternative Name/{n;p}' | sed 's/\s//g' | tr -d 'DNS:' | sed 's/,/ /g')"
-    altnames=$(echo "$subjectaltnames" | sed "s/\([^\.]\)\($subject\)\([^\.]\)/\3/g")
-    OUTPUT="${OUTPUT}${subject}@${altnames}@${enddate_str}@${remaining_days}\n"
-  done
-  
-  printf "${OUTPUT}" | awk -vOFS='\t' 'NF > 0 { $1 = $1 } 1'
+  eval "$LE_CMD certificates"
 }
 
 print_pin() {
   if [ $# -lt 1 ]
   then
     echo 'Usage: print-pin <domain name>'
-    exit 1
+    return 1
   fi
 
   DOMAINNAME="${1}"
-  DOMAIN_FOLDER="${LE_CERT_ROOT}/${DOMAINNAME}"
+  DOMAIN_FOLDER="${LE_DIR}/live/${DOMAINNAME}"
 
   if [ ! -d "${DOMAIN_FOLDER}" ]; then
     log_error "Domain ${DOMAINNAME} does not exist!"
-    exit 6
+    return 6
   fi
 
   pin_sha256=$(openssl rsa -in "${DOMAIN_FOLDER}/privkey.pem" -outform der -pubout 2> /dev/null | openssl dgst -sha256 -binary | openssl enc -base64)
@@ -345,24 +263,25 @@ remove() {
   if [ $# -lt 1 ]
   then
     echo 'Usage: remove <domain name>'
-    exit 1
+    return 1
   fi
+
+  DOMAINNAME=$1
+  DOMAIN_LIVE_FOLDER="${LE_DIR}/live/${DOMAINNAME}"
+  DOMAIN_ARCHIVE_FOLDER="${LE_DIR}/archive/${DOMAINNAME}"
+  DOMAIN_RENEWAL_CONFIG="${LE_DIR}/renewal/${DOMAINNAME}.conf"
 
   log_info "Removing domain \"${DOMAINNAME}\"..."
 
-  DOMAINNAME=$1
-  DOMAIN_LIVE_FOLDER="${LE_CERT_ROOT}/${DOMAINNAME}"
-  DOMAIN_ARCHIVE_FOLDER="${LE_ARCHIVE_ROOT}/${DOMAINNAME}"
-  DOMAIN_RENEWAL_CONFIG="${LE_RENEWAL_CONFIG_ROOT}/${DOMAINNAME}.conf"
-
   if [ ! -d "${DOMAIN_LIVE_FOLDER}" ]; then
     log_error "Domain ${1} does not exist! Cannot remove it."
-    exit 5
+    return 5
   fi
 
   rm -rf "${DOMAIN_LIVE_FOLDER}" || die "Failed to remove domain live directory ${DOMAIN_FOLDER}"
   rm -rf "${DOMAIN_ARCHIVE_FOLDER}" || die "Failed to remove domain archive directory ${DOMAIN_ARCHIVE_FOLDER}"
   rm -f "${DOMAIN_RENEWAL_CONFIG}" || die "Failed to remove domain renewal config ${DOMAIN_RENEWAL_CONFIG}"
+  rm -f "${CERT_DIR}/${DOMAINNAME}.pem" 2>/dev/null
 
   log_info "Removed domain \"${DOMAINNAME}\"..."
 }
@@ -397,59 +316,94 @@ die() {
 cron_auto_renewal_init() {
   log_info "Executing cron_auto_renewal_init at $(date -R)"
 
-  # Domain name must not be an IP address and must contain at least one '.' for cert generation
-  if [ -n "${DOMAINNAME}" ] && [[ ! "${DOMAINNAME}" =~ $IP_REGEX ]]; then
-    if [ ! -d "${LE_CERT_ROOT}/${DOMAINNAME}" ]; then
+  # Start crond if not already started
+  if ! pgrep crond > /dev/null; then
+    log_info "Starting crond"
+    crond 1>/dev/null 2>/dev/null
+  fi
+
+  # Init cron job to renew certs
+  cron_auto_renewal
+
+  # Iterate through domain names and check/create certificates
+  # certbot certificates doesn't seem to work so check directories exist manually
+  IFS_OLD=$IFS
+  IFS=$','
+  for DOMAINNAME in $DOMAINNAMES; do
+    if [ ! -d "${LE_DIR}/live/${DOMAINNAME}" ]; then
       log_info "Initialising certificate for '${DOMAINNAME}'..."
-      rm -rf "${LE_CERT_ROOT}/${DOMAINNAME}"
+      rm -rf "${LE_DIR}/live/${DOMAINNAME}" 2>/dev/null
       add "${DOMAINNAME}"
     fi
+  done
+  IFS=$IFS_OLD
 
-    # TODO Multiple domains
-    #  while IFS= read -r -d '' domain_dir; do
-    #    DOMAINNAME=$(basename ${domain_dir})
-    #    log_info "Checking domain '${DOMAINNAME}'..."
-    #
-    #    if [ -f "${domain_dir}/cert.pem" ]; then
-    #      log_info "Certificate exists"
-    #    else
-    #      log_info "Certificate doesn't exist so attempting to add it..."
-    #      log_info "Removing domain dir otherwise add will fail..."
-    #      log_info "CALL ADD ${DOMAINNAME}"
-    #      rm -rf ${domain_dir}
-    #      add ${DOMAINNAME}
-    #    fi
-    #
-    #  done < <(find ${LE_CERT_ROOT} -mindepth 1 -maxdepth 1 -type d -print0)
+  # Remove any stale/obsolete certificates
+  DIRS=$(ls -1d ${LE_DIR}/live/* 2>/dev/null)
+  IFS_OLD=$IFS
+  IFS=$'\n'
+  for d in $DIRS; do
+    # Need additional check as ash shell ls -d includes files
+    if [ ! -d "$d" ]; then
+      continue
+    fi
+    CERT=$(basename $d)
+    if [[ "$DOMAINNAMES" != "$CERT"* ]] && [[ "$DOMAINNAMES" != *",$CERT"* ]]; then
+      log_info "Removing obsolete certificate for '$CERT'"
+      remove "$CERT"
+    fi
+  done
+  IFS=$IFS_OLD
 
-    auto_renew
-    cron_auto_renewal
+  # Remove any stale haproxy cert chains
+  FILES=$(ls -1 ${CERT_DIR}/* 2>/dev/null)
+  IFS_OLD=$IFS
+  IFS=$'\n'
+  for f in $FILES; do
+    CERT=$(basename $f)
+    if [ ! -d "${LE_DIR}/live/${CERT}" ]; then
+      log_info "Removing obsolete haproxy certificate chain for '$CERT'"
+      rm -f $f
+    fi
+  done
+  IFS=$IFS_OLD
 
-  else
-    log_info "Domain is 'localhost', dummy SSL certificate does not have to be renewed"
-  fi
+  # Run renew in case any existing certs need updating
+  auto_renew
 }
 
 cron_auto_renewal() {
-    # Add daily cron script to renew certs as required
-	cp /cron.sh /etc/periodic/daily/
-
-    # Start crond if not already started
-    crond
+  # Add daily cron script to renew certs as required
+  printf "#!/bin/sh\ncertbot renew --deploy-hook \"/entrypoint.sh sync-haproxy\"\n" > /etc/periodic/daily/certbot-renew
+  chmod +x /etc/periodic/daily/certbot-renew
 }
 
-log_info "DOMAINNAME: ${DOMAINNAME}"
-log_info "LOCAL_CERT_FILE: ${LOCAL_CERT_FILE}"
-log_info "HAPROXY_CERT_FILE: ${CERT_FILE}"
+sync_haproxy() {
+  if [ -z "$RENEWED_LINEAGE" ]; then
+    log_error "sync-haproxy expect RENEWED_LINEAGE variable to be set"
+    exit 1
+  fi
+
+  DOMAIN_FOLDER="$RENEWED_LINEAGE"
+  DOMAINNAME=$(basename $RENEWED_LINEAGE)
+
+  log_info "Updating haproxy cert chain for '$DOMAINNAME'"
+
+  cat "${DOMAIN_FOLDER}/privkey.pem" \
+   "${DOMAIN_FOLDER}/fullchain.pem" \
+   > "/tmp/haproxy.pem"
+   mv "/tmp/haproxy.pem" "${CERT_DIR}/${DOMAINNAME}"
+}
+
+log_info "DOMAINNAMES: ${DOMAINNAMES}"
 log_info "HAPROXY_CONFIG: ${HAPROXY_CONFIG}"
 log_info "HAPROXY_CMD: ${HAPROXY_CMD}"
 log_info "HAPROXY_USER_PARAMS: ${HAPROXY_USER_PARAMS}"
 log_info "PROXY_LOGLEVEL: ${PROXY_LOGLEVEL}"
-log_info "LE_CERT_ROOT: ${LE_CERT_ROOT}"
-log_info "LE_ARCHIVE_ROOT: ${LE_ARCHIVE_ROOT}"
-log_info "LE_RENEWAL_CONFIG_ROOT: ${LE_RENEWAL_CONFIG_ROOT}"
-log_info "LE_CMD: ${LE_CMD}"
-log_info "LOGFILE: ${LOGFILE}"
+log_info "LUA_PATH: ${LUA_PATH}"
+log_info "CERT_DIR: ${CERT_DIR}"
+log_info "LE_DIR: ${LE_DIR}"
+log_info "CHROOT_DIR: ${CHROOT_DIR}"
 
 if [ $# -eq 0 ]
 then
@@ -484,8 +438,8 @@ elif [ "${CMD}" = "print-pin" ]; then
   print_pin "${@}"
 elif [ "${CMD}" = "cron-auto-renewal-init" ]; then
   cron_auto_renewal_init
-elif [ "${CMD}" = "start-with-certificate" ]; then
-  start_with_certificate
+elif [ "${CMD}" = "sync-haproxy" ]; then
+  sync_haproxy
 else
   die "Unknown command: ${CMD}"
 fi
