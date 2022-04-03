@@ -34,9 +34,9 @@ jobs:
       - name: Set tags
         run: |
           if [ -z "$TAG" ]; then
-            echo "TAG=\"-t openremote/proxy:develop\"" >> $GITHUB_ENV
+            echo "TAG=-t openremote/proxy:develop" >> $GITHUB_ENV
           else
-            echo "TAG=\"-t openremote/proxy:latest -t openremote/proxy:$TAG\"" >> $GITHUB_ENV
+            echo "TAG=-t openremote/proxy:latest -t openremote/proxy:$TAG" >> $GITHUB_ENV
           fi
         env:
           TAG: ${{ github.event.release.tag_name }}
@@ -63,4 +63,4 @@ jobs:
         
       - name: build and push images
         run: |
-          echo "docker build --build-arg GIT_COMMIT=${{ github.sha }} --push --platform $PLATFORM $TAG ."
+          docker build --build-arg GIT_COMMIT=${{ github.sha }} --push --platform $PLATFORM $TAG .
