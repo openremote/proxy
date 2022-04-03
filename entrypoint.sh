@@ -128,7 +128,7 @@ add() {
   fi
 
   DOMAINNAME="${1}"
-  DOMAIN_FOLDER="${LE_DIR}/live/{DOMAINNAME}"
+  RENEWED_LINEAGE="${LE_DIR}/live/${DOMAINNAME}"
 
   # Basic invalid DOMAINNAME check
   # Current ash shell on alpine needs regex to be quoted this isn't the case for newer bash shell versions hence the double check
@@ -159,11 +159,7 @@ add() {
    return $ret
   fi
 
-  # Concat the certificate chain and private key to a PEM file suitable for HAProxy
-  cat "${DOMAIN_FOLDER}/privkey.pem" \
-   "${DOMAIN_FOLDER}/fullchain.pem" \
-   > "/tmp/haproxy.pem"
-   mv "/tmp/haproxy.pem" "${CERT_DIR}/${DOMAINNAME}"
+  sync_haproxy
 
   ret=$?
 
@@ -199,26 +195,13 @@ renew() {
     fi
   done
 
-  eval "$LE_CMD --force-renewal --expand $DOMAIN_ARGS"
+  eval "$LE_CMD --force-renewal --deploy-hook \"/entrypoint.sh sync-haproxy\" --expand $DOMAIN_ARGS"
 
   LE_RESULT=$?
 
   if [ ${LE_RESULT} -ne 0 ]; then
    >&2 log_error "letsencrypt returned error code ${LE_RESULT}"
    return ${LE_RESULT}
-  fi
-
-  # Concat the certificate chain and private key to a PEM file suitable for HAProxy
-  cat "${DOMAIN_FOLDER}/privkey.pem" \
-   "${DOMAIN_FOLDER}/fullchain.pem" \
-   > "/tmp/haproxy.pem"
-   mv "/tmp/haproxy.pem" "${CERT_DIR}/${DOMAINNAME}"
-
-  ret=$?
-  
-  if [ $ret -ne 0 ]; then
-   >&2 log_error "failed to create haproxy.pem file!"
-   return $ret
   fi
 
   log_info "Renewed domain \"${DOMAINNAME}\"..."
