@@ -15,7 +15,6 @@ on:
     tags-ignore:
       - '*.*'
     paths-ignore:
-      - '.github/**'
       - '**/*.md'
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
@@ -23,7 +22,7 @@ jobs:
   image_proxy:
   
     env:
-      PLATFORMS: linux/amd64,linux/aarch64,linux/arm/v7,linux/arm/v6
+      PLATFORM: linux/amd64,linux/aarch64,linux/arm/v7,linux/arm/v6
       
     runs-on: ubuntu-latest
     
