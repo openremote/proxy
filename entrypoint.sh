@@ -338,7 +338,7 @@ cron_auto_renewal_init() {
   done
   IFS=$IFS_OLD
 
-  # Remove any stale/obsolete certificates
+  # Remove any stale/obsolete certificates and check haproxy full chain file exists
   DIRS=$(ls -1d ${LE_DIR}/live/* 2>/dev/null)
   IFS_OLD=$IFS
   IFS=$'\n'
@@ -351,6 +351,9 @@ cron_auto_renewal_init() {
     if [[ "$DOMAINNAMES" != "$CERT"* ]] && [[ "$DOMAINNAMES" != *",$CERT"* ]]; then
       log_info "Removing obsolete certificate for '$CERT'"
       remove "$CERT"
+    else
+      RENEWED_LINEAGE="$LE_DIR/live/$CERT"
+      sync_haproxy
     fi
   done
   IFS=$IFS_OLD
