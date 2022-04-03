@@ -101,7 +101,7 @@ restart() {
 
   if check_proxy; then
     PID=$(cat $HAPROXY_PID_FILE)
-    if [ -z "$PID" ] || ! pgrep -P $PID > /dev/null; then
+    if [ -z "$PID" ] || ! pgrep -x "haproxy" > /dev/null; then
       log_info "HAProxy is not running so starting"
       eval "$HAPROXY_CMD $HAPROXY_START_OPTIONS"
     else
@@ -300,7 +300,7 @@ cron_auto_renewal_init() {
   log_info "Executing cron_auto_renewal_init at $(date -R)"
 
   # Start crond if not already started
-  if ! pgrep crond > /dev/null; then
+  if ! pgrep -x crond > /dev/null; then
     log_info "Starting crond"
     crond 1>/dev/null 2>/dev/null
   fi
