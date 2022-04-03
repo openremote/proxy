@@ -29,4 +29,4 @@ Any custom certificate volume mapped into `/etc/haproxy/certs` should be in PEM 
  cat privkey.pem cert.pem chain.pem > ssl-certs.pem
 ```
 
-See `haproxy` SSL cert [documentation](https://www.haproxy.com/blog/haproxy-ssl-termination/#enabling-ssl-with-haproxy)).
+See `haproxy` SSL cert [documentation](https://www.haproxy.com/blog/haproxy-ssl-termination/#enabling-ssl-with-haproxy).
