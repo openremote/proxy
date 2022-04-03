@@ -57,8 +57,10 @@ jobs:
       
       - name: available platforms
         run: echo ${{ steps.buildx.outputs.platforms }}
+        
       - name: login to docker hub
         run: echo "${{ secrets.DOCKERHUB_PASSWORD }}" | docker login -u "${{ secrets.DOCKERHUB_USER }}" --password-stdin
+        
       - name: build and push images
         run: |
-          docker build --build-arg GIT_COMMIT=${{ github.sha }} --push --platform $PLATFORM $TAG .
+          echo "docker build --build-arg GIT_COMMIT=${{ github.sha }} --push --platform $PLATFORM $TAG ."
