@@ -59,7 +59,6 @@ jobs:
         run: echo ${{ steps.buildx.outputs.platforms }}
         
       - name: Login to DockerHub
-        if: ${{ steps.manager-docker-command.outputs.pushRequired == 'true' }}
         uses: docker/login-action@v1
         with:
           username: ${{ steps.inputs-and-secrets.outputs._TEMP_DOCKERHUB_USER }}
