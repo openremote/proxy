@@ -58,8 +58,12 @@ jobs:
       - name: available platforms
         run: echo ${{ steps.buildx.outputs.platforms }}
         
-      - name: login to docker hub
-        run: echo "${{ secrets._TEMP_DOCKERHUB_PASSWORD }}" | docker login -u "${{ secrets._TEMP_DOCKERHUB_USER }}" --password-stdin
+      - name: Login to DockerHub
+        if: ${{ steps.manager-docker-command.outputs.pushRequired == 'true' }}
+        uses: docker/login-action@v1
+        with:
+          username: ${{ steps.inputs-and-secrets.outputs._TEMP_DOCKERHUB_USER }}
+          password: ${{ steps.inputs-and-secrets.outputs._TEMP_DOCKERHUB_PASSWORD }}
         
       - name: build and push images
         run: |
