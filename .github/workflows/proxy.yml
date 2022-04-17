@@ -61,8 +61,8 @@ jobs:
       - name: Login to DockerHub
         uses: docker/login-action@v1
         with:
-          username: ${{ steps.inputs-and-secrets.outputs._TEMP_DOCKERHUB_USER }}
-          password: ${{ steps.inputs-and-secrets.outputs._TEMP_DOCKERHUB_PASSWORD }}
+          username: ${{ secrets._TEMP_DOCKERHUB_USER }}
+          password: ${{ secrets._TEMP_DOCKERHUB_PASSWORD }}
         
       - name: build and push images
         run: |
