@@ -129,6 +129,7 @@ add() {
 
   DOMAINNAME="${1}"
   RENEWED_LINEAGE="${LE_DIR}/live/${DOMAINNAME}"
+  DOMAIN_FOLDER=$RENEWED_LINEAGE
 
   # Basic invalid DOMAINNAME check
   # Current ash shell on alpine needs regex to be quoted this isn't the case for newer bash shell versions hence the double check
