@@ -36,7 +36,7 @@ fi
 
 if [ -n "$DOMAINNAME" ]; then
   if [ -n "$DOMAINNAMES" ]; then
-    DOMAINNAMES="$DOMAINNAMES,$DOMAINNAME"
+    DOMAINNAMES="$DOMAINNAME,$DOMAINNAMES"
   else
     DOMAINNAMES="$DOMAINNAME"
   fi
@@ -127,27 +127,27 @@ add() {
     return 1
   fi
 
-  DOMAINNAME="${1}"
-  RENEWED_LINEAGE="${LE_DIR}/live/${DOMAINNAME}"
+  DOMAIN="${1}"
+  RENEWED_LINEAGE="${LE_DIR}/live/${DOMAIN}"
   DOMAIN_FOLDER=$RENEWED_LINEAGE
 
-  # Basic invalid DOMAINNAME check
+  # Basic invalid DOMAIN check
   # Current ash shell on alpine needs regex to be quoted this isn't the case for newer bash shell versions hence the double check
-  if [[ "$DOMAINNAME" =~ $IP_REGEX ]] || [[ "$DOMAINNAME" =~ "$IP_REGEX" ]]; then
-    log_info "Domain is an IP address or simple hostname so ignoring cert request '$DOMAINNAME'"
+  if [[ "$DOMAIN" =~ $IP_REGEX ]] || [[ "$DOMAIN" =~ "$IP_REGEX" ]]; then
+    log_info "Domain is an IP address or simple hostname so ignoring cert request '$DOMAIN'"
     return 2
   fi
 
   if [ -e "${DOMAIN_FOLDER}" ]; then
-    log_error "Domain '${DOMAINNAME}' already exists."
+    log_error "Domain '${DOMAIN}' already exists."
     return 3
   fi
 
-  log_info "Adding domain \"${DOMAINNAME}\"..."
+  log_info "Adding domain \"${DOMAIN}\"..."
 
-  DOMAIN_ARGS="-d ${DOMAINNAME}"
+  DOMAIN_ARGS="-d ${DOMAIN}"
   for name in "${@}"; do
-    if [ "${name}" != "${DOMAINNAME}" ]; then
+    if [ "${name}" != "${DOMAIN}" ]; then
       DOMAIN_ARGS="${DOMAIN_ARGS} -d ${name}"
     fi
   done
@@ -165,11 +165,11 @@ add() {
   ret=$?
 
   if [ $ret -ne 0 ]; then
-   >&2 log_error "Failed to create haproxy.pem file for '$DOMAINNAME'"
+   >&2 log_error "Failed to create haproxy.pem file for '$DOMAIN'"
    return $ret
   fi
 
-  log_info "Added domain \"${DOMAINNAME}\"..."
+  log_info "Added domain \"${DOMAIN}\"..."
 }
 
 renew() {
@@ -179,19 +179,19 @@ renew() {
     return 1
   fi
 
-  DOMAINNAME="${1}"
-  DOMAIN_FOLDER="${LE_DIR}/live/${DOMAINNAME}"
+  DOMAIN="${1}"
+  DOMAIN_FOLDER="${LE_DIR}/live/${DOMAIN}"
 
   if [ ! -d "${DOMAIN_FOLDER}" ]; then
-    log_error "Domain ${DOMAINNAME} does not exist! Cannot renew it."
+    log_error "Domain ${DOMAIN} does not exist! Cannot renew it."
     return 6
   fi
 
-  log_info "Renewing domain \"${DOMAINNAME}\"..."
+  log_info "Renewing domain \"${DOMAIN}\"..."
 
-  DOMAIN_ARGS="-d ${DOMAINNAME}"
+  DOMAIN_ARGS="-d ${DOMAIN}"
   for name in "${@}"; do
-    if [ "${name}" != "${DOMAINNAME}" ]; then
+    if [ "${name}" != "${DOMAIN}" ]; then
       DOMAIN_ARGS="${DOMAIN_ARGS} -d ${name}"
     fi
   done
@@ -205,7 +205,7 @@ renew() {
    return ${LE_RESULT}
   fi
 
-  log_info "Renewed domain \"${DOMAINNAME}\"..."
+  log_info "Renewed domain \"${DOMAIN}\"..."
 }
 
 auto_renew() {
@@ -224,11 +224,11 @@ print_pin() {
     return 1
   fi
 
-  DOMAINNAME="${1}"
-  DOMAIN_FOLDER="${LE_DIR}/live/${DOMAINNAME}"
+  DOMAIN="${1}"
+  DOMAIN_FOLDER="${LE_DIR}/live/${DOMAIN}"
 
   if [ ! -d "${DOMAIN_FOLDER}" ]; then
-    log_error "Domain ${DOMAINNAME} does not exist!"
+    log_error "Domain ${DOMAIN} does not exist!"
     return 6
   fi
 
@@ -250,12 +250,12 @@ remove() {
     return 1
   fi
 
-  DOMAINNAME=$1
-  DOMAIN_LIVE_FOLDER="${LE_DIR}/live/${DOMAINNAME}"
-  DOMAIN_ARCHIVE_FOLDER="${LE_DIR}/archive/${DOMAINNAME}"
-  DOMAIN_RENEWAL_CONFIG="${LE_DIR}/renewal/${DOMAINNAME}.conf"
+  DOMAIN=$1
+  DOMAIN_LIVE_FOLDER="${LE_DIR}/live/${DOMAIN}"
+  DOMAIN_ARCHIVE_FOLDER="${LE_DIR}/archive/${DOMAIN}"
+  DOMAIN_RENEWAL_CONFIG="${LE_DIR}/renewal/${DOMAIN}.conf"
 
-  log_info "Removing domain \"${DOMAINNAME}\"..."
+  log_info "Removing domain \"${DOMAIN}\"..."
 
   if [ ! -d "${DOMAIN_LIVE_FOLDER}" ]; then
     log_error "Domain ${1} does not exist! Cannot remove it."
@@ -265,9 +265,9 @@ remove() {
   rm -rf "${DOMAIN_LIVE_FOLDER}" || die "Failed to remove domain live directory ${DOMAIN_FOLDER}"
   rm -rf "${DOMAIN_ARCHIVE_FOLDER}" || die "Failed to remove domain archive directory ${DOMAIN_ARCHIVE_FOLDER}"
   rm -f "${DOMAIN_RENEWAL_CONFIG}" || die "Failed to remove domain renewal config ${DOMAIN_RENEWAL_CONFIG}"
-  rm -f "${CERT_DIR}/${DOMAINNAME}.pem" 2>/dev/null
+  rm -f "${CERT_DIR}/${DOMAIN}" 2>/dev/null
 
-  log_info "Removed domain \"${DOMAINNAME}\"..."
+  log_info "Removed domain \"${DOMAIN}\"..."
 }
 
 log_error() {
@@ -316,11 +316,17 @@ cron_auto_renewal_init() {
   # certbot certificates doesn't seem to work so check directories exist manually
   IFS_OLD=$IFS
   IFS=$','
-  for DOMAINNAME in $DOMAINNAMES; do
-    if [ ! -d "${LE_DIR}/live/${DOMAINNAME}" ]; then
-      log_info "Initialising certificate for '${DOMAINNAME}'..."
-      rm -rf "${LE_DIR}/live/${DOMAINNAME}" 2>/dev/null
-      add "${DOMAINNAME}"
+  i=0
+  for DOMAIN in $DOMAINNAMES; do
+    i=$((i+1))
+    if [ ! -d "${LE_DIR}/live/${DOMAIN}" ]; then
+      log_info "Initialising certificate for '${DOMAIN}'..."
+      rm -rf "${LE_DIR}/live/${DOMAIN}" 2>/dev/null
+      add "${DOMAIN}"
+    fi
+    if [ $i -eq 1 ]; then
+        log_info "Symlinking first domain to built in cert directory to take precedence over self signed cert"
+        ln -sfT ${CERT_DIR}/${DOMAIN} /etc/haproxy/certs/00-cert
     fi
   done
   IFS=$IFS_OLD
@@ -354,7 +360,6 @@ cron_auto_renewal_init() {
     if [ ! -d "${LE_DIR}/live/${CERT}" ]; then
       log_info "Removing obsolete haproxy certificate chain for '$CERT'"
       rm -f $f
-      CERTS_MODIFIED=true
     fi
   done
   IFS=$IFS_OLD
@@ -383,14 +388,14 @@ sync_haproxy() {
   fi
 
   DOMAIN_FOLDER="$RENEWED_LINEAGE"
-  DOMAINNAME=$(basename $RENEWED_LINEAGE)
+  DOMAIN=$(basename $RENEWED_LINEAGE)
 
-  log_info "Updating haproxy cert chain for '$DOMAINNAME'"
+  log_info "Updating haproxy cert chain for '$DOMAIN'"
 
   cat "${DOMAIN_FOLDER}/privkey.pem" \
    "${DOMAIN_FOLDER}/fullchain.pem" \
    > "/tmp/haproxy.pem"
-   mv "/tmp/haproxy.pem" "${CERT_DIR}/${DOMAINNAME}"
+   mv "/tmp/haproxy.pem" "${CERT_DIR}/${DOMAIN}"
 }
 
 log_info "DOMAINNAMES: ${DOMAINNAMES}"
