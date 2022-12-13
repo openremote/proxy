@@ -14,20 +14,16 @@ if [ -n "${LE_RSA_KEY_SIZE}" ]; then
   LE_EXTRA_ARGS="${LE_EXTRA_ARGS} --rsa-key-size ${LE_RSA_KEY_SIZE}"
 fi
 
-LE_CMD="certbot certonly -w ${CHROOT_DIR} ${LE_EXTRA_ARGS}"
+LE_CMD="certbot certonly --logs-dir - -w ${CHROOT_DIR} ${LE_EXTRA_ARGS}"
 
 # Configure haproxy
-HAPROXY_CMD="haproxy -f ${HAPROXY_CONFIG} ${HAPROXY_USER_PARAMS} -D -p ${HAPROXY_PID_FILE}"
-HAPROXY_START_OPTIONS="-st \$(cat \$HAPROXY_PID_FILE)"
-HAPROXY_RESTART_OPTIONS="-sf \$(cat \$HAPROXY_PID_FILE) -x /var/run/haproxy.sock"
+HAPROXY_CMD="haproxy -W -db -f ${HAPROXY_CONFIG} ${HAPROXY_USER_PARAMS}"
+HAPROXY_RESTART_CMD="kill -s HUP 1"
 HAPROXY_CHECK_CONFIG_CMD="haproxy -f ${HAPROXY_CONFIG} -c"
-
-INITIALISED=false
 
 # Make dirs and files
 mkdir -p /deployment/letsencrypt/live
 mkdir -p /deployment/certs
-touch /var/run/haproxy.pid
 
 if [ "$DOMAINNAME" == 'localhost' ]; then
   # To maintain support for existing setups
@@ -51,9 +47,8 @@ print_help() {
   echo "list                    - List configured domains and their certificate's status"
   echo "add                     - Add a new domain and create a certificate for it"
   echo "renew                   - Renew the certificate for an existing domain. Allows to add additional domain names."
+  echo "monitor                 - Monitor the config file and certificates for changes and reload proxy"
   echo "remove                  - Remove and existing domain and its certificate"
-  echo "cron-auto-renewal       - Run the cron job automatically renewing all certificates"
-  echo "cron-auto-renewal-init  - Obtain missing certificates, purge obsolete and automatically calls renew"
   echo "auto-renew              - Try to automatically renew all installed certificates"
   echo "print-pin               - Print the public key pin for a given domain for usage with HPKP"
   echo "sync-haproxy            - Deploy hook for certbot to synchronise haproxy cert chains"
@@ -66,55 +61,64 @@ check_proxy() {
 }
 
 run_proxy() {
+
+    log_info "DOMAINNAMES: ${DOMAINNAMES}"
+    log_info "HAPROXY_CONFIG: ${HAPROXY_CONFIG}"
+    log_info "HAPROXY_CMD: ${HAPROXY_CMD}"
+    log_info "HAPROXY_USER_PARAMS: ${HAPROXY_USER_PARAMS}"
+    log_info "PROXY_LOGLEVEL: ${PROXY_LOGLEVEL}"
+    log_info "LUA_PATH: ${LUA_PATH}"
+    log_info "CERT_DIR: ${CERT_DIR}"
+    log_info "LE_DIR: ${LE_DIR}"
+
     if check_proxy; then
+    
+      log_info "Starting crond"
+      crond
+
+      cert_init&
+      
+      log_info "Starting monitoring process"
+      monitor&
+      
       log_info "HAProxy starting"
-      eval "$HAPROXY_CMD $HAPROXY_START_OPTIONS"
+      exec su -s /bin/sh -c "$HAPROXY_CMD $HAPROXY_START_OPTIONS"
       ret=$?
 
       if [ $ret -ne 0 ]; then
         log_info "HAProxy start failed"
       else
         log_info "HAProxy started with '$HAPROXY_CONFIG' config, pid = $(cat $HAPROXY_PID_FILE)."
-        cron_auto_renewal_init
-        INITIALISED=true
+
       fi
     else
       log_error "Cannot start proxy until config file errors are resolved in '$HAPROXY_CONFIG'"
+      exit 1
     fi
+}
 
-    while true; do
-      log_info "Monitoring config file '$HAPROXY_CONFIG' and certs in '$CERT_DIR' for changes..."
+monitor() {
+  while true; do
+    log_info "Monitoring config file '$HAPROXY_CONFIG' and certs in '$CERT_DIR' for changes..."
 
-      # Wait if config or certificates were changed, block this execution
-      inotifywait -q -r --exclude '\.git/' -e modify,create,delete,move,move_self "$HAPROXY_CONFIG" "$CERT_DIR" |
-        while read events; do
-            log_info "Change detected..."
-            sleep 5
-            restart
-        done
-    done
+    # Wait if config or certificates were changed, block this execution
+    inotifywait -q -r --exclude '\.git/' -e modify,create,delete,move,move_self "$HAPROXY_CONFIG" "$CERT_DIR" |
+      while read events; do
+        log_info "Change detected..."
+        sleep 5
+        restart
+      done
+      monitor
+  done
 }
 
 restart() {
 
-  log_info "HAProxy restart requested..."
+  log_info "HAProxy restart required..."
 
   if check_proxy; then
-    PID=$(cat $HAPROXY_PID_FILE)
-    if [ -z "$PID" ] || ! pgrep -x "haproxy" > /dev/null; then
-      log_info "HAProxy is not running so starting"
-      eval "$HAPROXY_CMD $HAPROXY_START_OPTIONS"
-    else
-      log_info "HAProxy restarting"
-      eval "$HAPROXY_CMD $HAPROXY_RESTART_OPTIONS"
-    fi
-
-    ret=$?
-
-    if [ $ret -ne 0 ]; then
-      log_info "HAProxy start/restart failed"
-    fi
-    log_info "HAProxy started/restarted with '$HAPROXY_CONFIG' config, pid = $(cat $HAPROXY_PID_FILE)."
+    log_info "Config is valid so requesting restart..."
+    $HAPROXY_RESTART_CMD
   else
     log_info "HAProxy config invalid, not restarting..."
   fi
@@ -263,7 +267,7 @@ remove() {
   fi
 
   rm -rf "${DOMAIN_LIVE_FOLDER}" || die "Failed to remove domain live directory ${DOMAIN_FOLDER}"
-  rm -rf "${DOMAIN_ARCHIVE_FOLDER}" || die "Failed to remove domain archive directory ${DOMAIN_ARCHIVE_FOLDER}"
+    rm -rf "${DOMAIN_ARCHIVE_FOLDER}" || die "Failed to remove domain archive directory ${DOMAIN_ARCHIVE_FOLDER}"
   rm -f "${DOMAIN_RENEWAL_CONFIG}" || die "Failed to remove domain renewal config ${DOMAIN_RENEWAL_CONFIG}"
   rm -f "${CERT_DIR}/${DOMAIN}" 2>/dev/null
 
@@ -271,25 +275,11 @@ remove() {
 }
 
 log_error() {
-  if [ -n "${LOGFILE}" ]
-  then
-    if [ "$*" ]; then echo "[ERROR][$(date +'%Y-%m-%d %T')] $*" >> "${LOGFILE}";
-    else echo; fi
-    >&2 echo "[ERROR][$(date +'%Y-%m-%d %T')] $*"
-  else
-    echo "[ERROR][$(date +'%Y-%m-%d %T')] $*"
-  fi
+  >&2 echo "[ERROR][$(date +'%Y-%m-%d %T')] $*"
 }
 
 log_info() {
-  if [ -n "${LOGFILE}" ]
-  then
-    if [ "$*" ]; then echo "[INFO][$(date +'%Y-%m-%d %T')] $*" >> "${LOGFILE}";
-    else echo; fi
-    >&2 echo "[INFO][$(date +'%Y-%m-%d %T')] $*"
-  else
-    echo "[INFO][$(date +'%Y-%m-%d %T')] $*"
-  fi
+  echo "[INFO][$(date +'%Y-%m-%d %T')] $*"
 }
 
 die() {
@@ -297,20 +287,13 @@ die() {
     exit 1
 }
 
-cron_auto_renewal_init() {
-  log_info "Executing cron_auto_renewal_init at $(date -R)"
-
-  # Start crond if not already started
-  if ! pgrep -x crond > /dev/null; then
-    log_info "Starting crond"
-    crond 1>/dev/null 2>/dev/null
-  fi
-
-  # Init cron job to renew certs
-  cron_auto_renewal
+cert_init() {
+  log_info "cert_init...waiting 10s for haproxy to be ready"
+  sleep 10
+  log_info "Executing cert_init at $(date -R)"
 
   # Take checksum of haproxy certs so we can tell if we need to restart as inotify is not running yet
-  CERT_SHA1=$(sha1sum ${CERT_DIR}/* | sha1sum)
+  CERT_SHA1=$(find ${CERT_DIR} -type f -print0 | xargs -0 sha1sum)
 
   # Iterate through domain names and check/create certificates
   # certbot certificates doesn't seem to work so check directories exist manually
@@ -367,18 +350,12 @@ cron_auto_renewal_init() {
   # Run renew in case any existing certs need updating
   auto_renew
 
-  CERT_SHA2=$(sha1sum ${CERT_DIR}/* | sha1sum)
+  CERT_SHA2=$(find ${CERT_DIR} -type f -print0 | xargs -0 sha1sum)
 
   if [ "$CERT_SHA1" != "$CERT_SHA2" ]; then
     log_info "HAProxy certs have been modified so restarting"
     restart
   fi
-}
-
-cron_auto_renewal() {
-  # Add daily cron script to renew certs as required
-  printf "#!/bin/sh\ncertbot renew --deploy-hook \"/entrypoint.sh sync-haproxy\"\n" > /etc/periodic/daily/certbot-renew
-  chmod +x /etc/periodic/daily/certbot-renew
 }
 
 sync_haproxy() {
@@ -398,16 +375,6 @@ sync_haproxy() {
    mv "/tmp/haproxy.pem" "${CERT_DIR}/${DOMAIN}"
 }
 
-log_info "DOMAINNAMES: ${DOMAINNAMES}"
-log_info "HAPROXY_CONFIG: ${HAPROXY_CONFIG}"
-log_info "HAPROXY_CMD: ${HAPROXY_CMD}"
-log_info "HAPROXY_USER_PARAMS: ${HAPROXY_USER_PARAMS}"
-log_info "PROXY_LOGLEVEL: ${PROXY_LOGLEVEL}"
-log_info "LUA_PATH: ${LUA_PATH}"
-log_info "CERT_DIR: ${CERT_DIR}"
-log_info "LE_DIR: ${LE_DIR}"
-log_info "CHROOT_DIR: ${CHROOT_DIR}"
-
 if [ $# -eq 0 ]
 then
   print_help
@@ -421,6 +388,8 @@ if [ "${CMD}" = "run"  ]; then
   run_proxy "${@}"
 elif [ "${CMD}" = "restart" ]; then
   restart
+elif [ "${CMD}" = "monitor" ]; then
+  monitor
 elif [ "${CMD}" = "check" ]; then
   check_proxy "${@}"
 elif [ "${CMD}" = "add" ]; then
@@ -435,12 +404,8 @@ elif [ "${CMD}" = "auto-renew" ]; then
   auto_renew "${@}"
 elif [ "${CMD}" = "help" ]; then
   print_help "${@}"
-elif [ "${CMD}" = "cron-auto-renewal" ]; then
-  cron_auto_renewal
 elif [ "${CMD}" = "print-pin" ]; then
   print_pin "${@}"
-elif [ "${CMD}" = "cron-auto-renewal-init" ]; then
-  cron_auto_renewal_init
 elif [ "${CMD}" = "sync-haproxy" ]; then
   sync_haproxy
 else
