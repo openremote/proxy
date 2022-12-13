@@ -82,7 +82,7 @@ run_proxy() {
       monitor&
       
       log_info "HAProxy starting"
-      exec su -s /bin/sh -c "$HAPROXY_CMD $HAPROXY_START_OPTIONS"
+      exec su haproxy -s /bin/sh -c "$HAPROXY_CMD $HAPROXY_START_OPTIONS"
       ret=$?
 
       if [ $ret -ne 0 ]; then
