@@ -102,13 +102,10 @@ monitor() {
     log_info "Monitoring config file '$HAPROXY_CONFIG' and certs in '$CERT_DIR' for changes..."
 
     # Wait if config or certificates were changed, block this execution
-    inotifywait -q -r --exclude '\.git/' -e modify,create,delete,move,move_self "$HAPROXY_CONFIG" "$CERT_DIR" |
-      while read events; do
-        log_info "Change detected..."
-        sleep 5
-        restart
-      done
-      monitor
+    inotifywait -q -r --exclude '\.git/' -e modify,create,delete,move,move_self "$HAPROXY_CONFIG" "$CERT_DIR"
+    log_info "Change detected..." &&
+    sleep 5 &&
+    restart
   done
 }
 

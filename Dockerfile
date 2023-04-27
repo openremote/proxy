@@ -3,7 +3,7 @@
 # HAProxy image with certbot for certificate generation and renewal
 #
 # -----------------------------------------------------------------------------------------------
-FROM haproxy:2.7.0-alpine
+FROM haproxy:2.7.6-alpine
 MAINTAINER support@openremote.io
 
 USER root
@@ -59,7 +59,7 @@ ADD cli.ini /root/.config/letsencrypt/
 ADD entrypoint.sh /
 RUN chmod +x /entrypoint.sh
 
-HEALTHCHECK --interval=3s --timeout=3s --start-period=2s --retries=30 CMD curl --fail --silent http://127.0.0.1:80 || exit 1
+HEALTHCHECK --interval=60s --timeout=3s --start-period=5s --retries=2 CMD curl --fail --silent http://127.0.0.1/docker-health || exit 1
 
 RUN chown -R haproxy:haproxy /etc/haproxy
 
