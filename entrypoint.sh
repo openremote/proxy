@@ -286,7 +286,7 @@ die() {
 
 cert_init() {
   log_info "cert_init...waiting 10s for haproxy to be ready"
-  sleep 10
+  sleep 20
   log_info "Executing cert_init at $(date -R)"
 
   # Take checksum of haproxy certs so we can tell if we need to restart as inotify is not running yet
