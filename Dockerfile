@@ -3,7 +3,7 @@
 # HAProxy image with certbot for certificate generation and renewal
 #
 # -----------------------------------------------------------------------------------------------
-FROM haproxy:2.7.8-alpine
+FROM haproxy:2.8-alpine
 MAINTAINER support@openremote.io
 
 USER root
