@@ -8,7 +8,6 @@ MAINTAINER support@openremote.io
 
 USER root
 
-ARG ACME_PLUGIN_VERSION=0.1.1
 ENV DOMAINNAME ${DOMAINNAME}
 ENV DOMAINNAMES ${DOMAINNAMES}
 ENV TERM xterm
@@ -25,9 +24,9 @@ ENV CERT_DIR /deployment/certs
 ENV LE_DIR /deployment/letsencrypt
 ENV CHROOT_DIR /etc/haproxy/webroot
 
-# Install certbot
+# Install certbot and Lexicon DNS plugin
 RUN apk update \
-    && apk add --no-cache certbot inotify-tools tar curl openssl \
+    && apk add --no-cache certbot py3-dns-lexicon py3-dnspython inotify-tools tar curl openssl \
     && rm -f /var/cache/apk/*
 
 # Add ACME LUA plugin
