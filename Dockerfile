@@ -8,7 +8,6 @@ MAINTAINER support@openremote.io
 
 USER root
 
-ARG ACME_PLUGIN_VERSION=0.1.1
 ENV DOMAINNAME ${DOMAINNAME}
 ENV DOMAINNAMES ${DOMAINNAMES}
 ENV TERM xterm
@@ -25,10 +24,11 @@ ENV CERT_DIR /deployment/certs
 ENV LE_DIR /deployment/letsencrypt
 ENV CHROOT_DIR /etc/haproxy/webroot
 
-# Install certbot
+# Install certbot and Route53 DNS plugin
 RUN apk update \
-    && apk add --no-cache certbot inotify-tools tar curl openssl \
-    && rm -f /var/cache/apk/*
+    && apk add --no-cache certbot py-pip inotify-tools tar curl openssl \
+    && rm -f /var/cache/apk/* \
+    && pip install certbot-dns-route53 --break-system-packages
 
 # Add ACME LUA plugin
 ADD acme-plugin.tar.gz /etc/haproxy/lua/
@@ -39,9 +39,9 @@ RUN mkdir -p ${CHROOT_DIR} \
     && mkdir -p ${LE_DIR} && chown haproxy:haproxy ${LE_DIR} \
     && mkdir -p /etc/letsencrypt \
     && mkdir -p /var/lib/letsencrypt \
-    && touch /etc/periodic/daily/certbot-renew \
-    && printf "#!/bin/sh\ncertbot renew --deploy-hook \"/entrypoint.sh sync-haproxy\"\n" > /etc/periodic/daily/certbot-renew \
-    && chmod +x /etc/periodic/daily/certbot-renew \
+    && touch /etc/periodic/daily/cert-renew \
+    && printf "#!/bin/sh\n/entrypoint.sh auto-renew\n" > /etc/periodic/daily/cert-renew \
+    && chmod +x /etc/periodic/daily/cert-renew \
     && chown -R haproxy:haproxy /etc/letsencrypt \
     && chown -R haproxy:haproxy /etc/haproxy \
     && chown -R haproxy:haproxy /var/lib/letsencrypt \

@@ -4,7 +4,6 @@
 IP_REGEX='(^([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}$)|(^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$)|(^[^\.]+$)'
 
 # Configure letsencrypt
-LE_EXTRA_ARGS=""
 if [ -n "${LE_EMAIL}" ]; then
   LE_EXTRA_ARGS="${LE_EXTRA_ARGS} --email ${LE_EMAIL}"
 else
@@ -14,7 +13,7 @@ if [ -n "${LE_RSA_KEY_SIZE}" ]; then
   LE_EXTRA_ARGS="${LE_EXTRA_ARGS} --rsa-key-size ${LE_RSA_KEY_SIZE}"
 fi
 
-LE_CMD="certbot certonly --logs-dir - -w ${CHROOT_DIR} ${LE_EXTRA_ARGS}"
+LE_CMD="certbot certonly -n --logs-dir - -w ${CHROOT_DIR} ${LE_EXTRA_ARGS}"
 
 # Configure haproxy
 HAPROXY_CMD="haproxy -W -db -f ${HAPROXY_CONFIG} ${HAPROXY_USER_PARAMS}"
@@ -70,14 +69,26 @@ run_proxy() {
     log_info "LUA_PATH: ${LUA_PATH}"
     log_info "CERT_DIR: ${CERT_DIR}"
     log_info "LE_DIR: ${LE_DIR}"
+    log_info "LE_CMD: ${LE_CMD}"
+    log_info "AWS_ROUTE53_ROLE: ${AWS_ROUTE53_ROLE}"
 
     if check_proxy; then
     
       log_info "Starting crond"
       crond
 
+      if [ -n "${AWS_ROUTE53_ROLE}" ]; then
+        log_info "Creating AWS CLI config file"
+        mkdir ~/.aws/config
+        rm -f ~/.aws/config 2> /dev/null
+        echo "[default]" >> ~/.aws/config
+        echo "role_arn = ${AWS_ROUTE53_ROLE}" >> ~/.aws/config
+        echo "credential_source = Ec2InstanceMetadata" >> ~/.aws/config
+        echo "" >> ~/.aws/config
+      fi
+
       cert_init&
-      
+
       log_info "Starting monitoring process"
       monitor&
       
@@ -129,7 +140,11 @@ add() {
   fi
 
   DOMAIN="${1}"
-  RENEWED_LINEAGE="${LE_DIR}/live/${DOMAIN}"
+  FNAME="${DOMAIN}"
+  if [[ ${DOMAIN:0:2} == "*." ]]; then
+    FNAME="_${DOMAIN:1}"
+  fi
+  RENEWED_LINEAGE="${LE_DIR}/live/${FNAME}"
   DOMAIN_FOLDER=$RENEWED_LINEAGE
 
   # Basic invalid DOMAIN check
@@ -153,7 +168,15 @@ add() {
     fi
   done
 
-  eval "$LE_CMD $DOMAIN_ARGS"
+  # For wildcard domains we use route 53 DNS plugin
+  if [[ ${DOMAIN:0:2} == "*." ]]; then
+    log_info "Wildcard domain cert requested, using route53 plugin: ${DOMAIN}"
+    CMD="${LE_CMD} --dns-route53 --cert-name _${DOMAIN:1}"
+  else
+    CMD="${LE_CMD} --webroot"
+  fi
+
+  eval "$CMD $DOMAIN_ARGS"
   ret=$?
 
   if [ $ret -ne 0 ]; then
@@ -181,7 +204,11 @@ renew() {
   fi
 
   DOMAIN="${1}"
-  DOMAIN_FOLDER="${LE_DIR}/live/${DOMAIN}"
+  FNAME="${DOMAIN}"
+  if [[ ${DOMAIN:0:2} == "*." ]]; then
+    FNAME="_${DOMAIN:1}"
+  fi
+  DOMAIN_FOLDER="${LE_DIR}/live/${FNAME}"
 
   if [ ! -d "${DOMAIN_FOLDER}" ]; then
     log_error "Domain ${DOMAIN} does not exist! Cannot renew it."
@@ -197,7 +224,7 @@ renew() {
     fi
   done
 
-  eval "$LE_CMD --force-renewal --deploy-hook \"/entrypoint.sh sync-haproxy\" --expand $DOMAIN_ARGS"
+  eval "$LE_CMD --force-renewal --deploy-hook \"/entrypoint.sh sync-haproxy\" --expand $DOMAIN_ARGS --cert-name $FNAME"
 
   LE_RESULT=$?
 
@@ -226,6 +253,10 @@ print_pin() {
   fi
 
   DOMAIN="${1}"
+  FNAME="${DOMAIN}"
+  if [[ ${DOMAIN:0:2} == "*." ]]; then
+    FNAME="_${DOMAIN:1}"
+  fi
   DOMAIN_FOLDER="${LE_DIR}/live/${DOMAIN}"
 
   if [ ! -d "${DOMAIN_FOLDER}" ]; then
@@ -252,9 +283,13 @@ remove() {
   fi
 
   DOMAIN=$1
-  DOMAIN_LIVE_FOLDER="${LE_DIR}/live/${DOMAIN}"
-  DOMAIN_ARCHIVE_FOLDER="${LE_DIR}/archive/${DOMAIN}"
-  DOMAIN_RENEWAL_CONFIG="${LE_DIR}/renewal/${DOMAIN}.conf"
+  FNAME="${DOMAIN}"
+  if [[ ${DOMAIN:0:2} == "*." ]]; then
+    FNAME="_${DOMAIN:1}"
+  fi
+  DOMAIN_LIVE_FOLDER="${LE_DIR}/live/${FNAME}"
+  DOMAIN_ARCHIVE_FOLDER="${LE_DIR}/archive/${FNAME}"
+  DOMAIN_RENEWAL_CONFIG="${LE_DIR}/renewal/${FNAME}.conf"
 
   log_info "Removing domain \"${DOMAIN}\"..."
 
@@ -263,11 +298,8 @@ remove() {
     return 5
   fi
 
-  rm -rf "${DOMAIN_LIVE_FOLDER}" || die "Failed to remove domain live directory ${DOMAIN_FOLDER}"
-    rm -rf "${DOMAIN_ARCHIVE_FOLDER}" || die "Failed to remove domain archive directory ${DOMAIN_ARCHIVE_FOLDER}"
-  rm -f "${DOMAIN_RENEWAL_CONFIG}" || die "Failed to remove domain renewal config ${DOMAIN_RENEWAL_CONFIG}"
-  rm -f "${CERT_DIR}/${DOMAIN}" 2>/dev/null
-
+  certbot revoke -n --cert-name ${FNAME}
+  certbot delete -n --cert-name ${FNAME}
   log_info "Removed domain \"${DOMAIN}\"..."
 }
 
@@ -299,14 +331,18 @@ cert_init() {
   i=0
   for DOMAIN in $DOMAINNAMES; do
     i=$((i+1))
-    if [ ! -d "${LE_DIR}/live/${DOMAIN}" ]; then
+    FNAME="${DOMAIN}"
+    if [[ ${DOMAIN:0:2} == "*." ]]; then
+      FNAME="_${DOMAIN:1}"
+    fi
+    if [ ! -d "${LE_DIR}/live/${FNAME}" ]; then
       log_info "Initialising certificate for '${DOMAIN}'..."
-      rm -rf "${LE_DIR}/live/${DOMAIN}" 2>/dev/null
+      rm -rf "${LE_DIR}/live/${FNAME}" 2>/dev/null
       add "${DOMAIN}"
     fi
     if [ $i -eq 1 ]; then
         log_info "Symlinking first domain to built in cert directory to take precedence over self signed cert"
-        ln -sfT ${CERT_DIR}/${DOMAIN} /etc/haproxy/certs/00-cert
+        ln -sfT ${CERT_DIR}/${FNAME} /etc/haproxy/certs/00-cert
     fi
   done
   IFS=$IFS_OLD
@@ -321,10 +357,14 @@ cert_init() {
       continue
     fi
     CERT=$(basename $d)
+    if [[ ${CERT:0:2} == "_." ]]; then
+      CERT="*${CERT:1}"
+    fi
     if [[ "$DOMAINNAMES" != "$CERT"* ]] && [[ "$DOMAINNAMES" != *",$CERT"* ]]; then
       log_info "Removing obsolete certificate for '$CERT'"
       remove "$CERT"
     else
+      CERT=$(basename $d)
       RENEWED_LINEAGE="$LE_DIR/live/$CERT"
       sync_haproxy
     fi
