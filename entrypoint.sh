@@ -79,7 +79,7 @@ run_proxy() {
 
       if [ -n "${AWS_ROUTE53_ROLE}" ]; then
         log_info "Creating AWS CLI config file"
-        mkdir ~/.aws/config
+        mkdir ~/.aws
         rm -f ~/.aws/config 2> /dev/null
         echo "[default]" >> ~/.aws/config
         echo "role_arn = ${AWS_ROUTE53_ROLE}" >> ~/.aws/config
