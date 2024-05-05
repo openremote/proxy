@@ -24,6 +24,8 @@ requested (this is a multi-value alternative to DOMAINNAME)
 * `LOGFILE` - Location of log file for entrypoint script to write to in addition to stdout (default `none`)
 * `AWS_ROUTE53_ROLE` - AWS Route53 Role ARN to be assumed when trying to generate wildcard certificates using Route53 DNS zone, specifically for cross account updates (default `none`)
 * `LE_EXTRA_ARGS` - Can be used to add additional arguments to the certbot command (default `none`)
+* `SISH_HOST` - Defines the destination hostname for forwarding requests that begin with `gw-` used in combination with `SISH_PORT`
+* `SISH_PORT` - Defined the destination port for forwarding requests tha begin with `gw-` used in combination with `SISH_HOST`
 
 ## Custom certificate format
 Any custom certificate volume mapped into `/etc/haproxy/certs` should be in PEM format and must include the full certificate chain and the private key, i.e.:
