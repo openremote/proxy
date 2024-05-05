@@ -32,3 +32,6 @@ Any custom certificate volume mapped into `/etc/haproxy/certs` should be in PEM 
 ```
 
 See `haproxy` SSL cert [documentation](https://www.haproxy.com/blog/haproxy-ssl-termination/#enabling-ssl-with-haproxy).
+
+## Edge gateway tunnelling using SISH
+The built in `haproxy.cfg` has support for forwarding requsts beginning with `gw-` to `https://SISH_HOST:SISH_PORT` just define these environment variables to enable this.
