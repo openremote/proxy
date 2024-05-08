@@ -88,9 +88,6 @@ run_proxy() {
       fi
 
       cert_init&
-
-      log_info "Starting monitoring process"
-      monitor&
       
       log_info "HAProxy starting"
       exec su haproxy -s /bin/sh -c "$HAPROXY_CMD $HAPROXY_START_OPTIONS"
@@ -393,6 +390,9 @@ cert_init() {
     log_info "HAProxy certs have been modified so restarting"
     restart
   fi
+  
+  log_info "Starting monitoring process"
+  monitor
 }
 
 sync_haproxy() {
