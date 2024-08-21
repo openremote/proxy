@@ -26,6 +26,7 @@ requested (this is a multi-value alternative to DOMAINNAME)
 * `LE_EXTRA_ARGS` - Can be used to add additional arguments to the certbot command (default `none`)
 * `SISH_HOST` - Defines the destination hostname for forwarding requests that begin with `gw-` used in combination with `SISH_PORT`
 * `SISH_PORT` - Defined the destination port for forwarding requests tha begin with `gw-` used in combination with `SISH_HOST`
+* `MQTT_RATE_LIMIT` - Enable rate limiting for MQTT connections (connections/s)
 
 ## Custom certificate format
 Any custom certificate volume mapped into `/etc/haproxy/certs` should be in PEM format and must include the full certificate chain and the private key, i.e.:
