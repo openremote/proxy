@@ -4,29 +4,60 @@
 #
 # -----------------------------------------------------------------------------------------------
 FROM haproxy:2.9-alpine
-MAINTAINER support@openremote.io
+LABEL maintainer="support@openremote.io"
 
 USER root
 
-ENV DOMAINNAME ${DOMAINNAME}
-ENV DOMAINNAMES ${DOMAINNAMES}
-ENV TERM xterm
-ENV HAPROXY_USER_PARAMS ${HAPROXY_USER_PARAMS}
-ENV HAPROXY_CONFIG ${HAPROXY_CONFIG:-/etc/haproxy/haproxy.cfg}
-ENV HTTP_PORT ${HTTP_PORT:-80}
-ENV HTTPS_PORT ${HTTPS_PORT:-443}
-ENV HTTPS_FORWARDED_PORT ${HTTPS_FORWARDED_PORT:-%[dst_port]}
-ENV NAMESERVER ${NAMESERVER:-127.0.0.11:53}
-ENV PROXY_LOGLEVEL ${PROXY_LOGLEVEL:-notice}
-ENV MANAGER_HOST ${MANAGER_HOST:-manager}
-ENV MANAGER_WEB_PORT ${MANAGER_WEB_PORT:-8080}
-ENV MANAGER_MQTT_PORT ${MANAGER_MQTT_PORT:-1883}
-ENV KEYCLOAK_HOST ${KEYCLOAK_HOST:-keycloak}
-ENV KEYCLOAK_PORT ${KEYCLOAK_PORT:-8080}
-ENV LOGFILE ${LOGFILE}
-ENV CERT_DIR /deployment/certs
-ENV LE_DIR /deployment/letsencrypt
-ENV CHROOT_DIR /etc/haproxy/webroot
+ARG DOMAINNAME
+ENV DOMAINNAME=${DOMAINNAME}
+
+ARG DOMAINNAMES
+ENV DOMAINNAMES=${DOMAINNAMES}
+
+ENV TERM=xterm
+
+ARG HAPROXY_USER_PARAMS
+ENV HAPROXY_USER_PARAMS=${HAPROXY_USER_PARAMS}
+
+ARG HAPROXY_CONFIG=/etc/haproxy/haproxy.cfg
+ENV HAPROXY_CONFIG=${HAPROXY_CONFIG}
+
+ARG HTTP_PORT=80
+ENV HTTP_PORT=${HTTP_PORT}
+
+ARG HTTPS_PORT=443
+ENV HTTPS_PORT=${HTTPS_PORT}
+
+ARG HTTPS_FORWARDED_PORT=%[dst_port]
+ENV HTTPS_FORWARDED_PORT=${HTTPS_FORWARDED_PORT}
+
+ARG NAMESERVER=127.0.0.11:53
+ENV NAMESERVER=${NAMESERVER}
+
+ARG PROXY_LOGLEVEL=notice
+ENV PROXY_LOGLEVEL=${PROXY_LOGLEVEL}
+
+ARG MANAGER_HOST=manager
+ENV MANAGER_HOST=${MANAGER_HOST}
+
+ARG MANAGER_WEB_PORT=8080
+ENV MANAGER_WEB_PORT=${MANAGER_WEB_PORT}
+
+ARG MANAGER_MQTT_PORT=1883
+ENV MANAGER_MQTT_PORT=${MANAGER_MQTT_PORT}
+
+ARG KEYCLOAK_HOST=keycloak
+ENV KEYCLOAK_HOST=${KEYCLOAK_HOST}
+
+ARG KEYCLOAK_PORT=8080
+ENV KEYCLOAK_PORT=${KEYCLOAK_PORT}
+
+ARG LOGFILE=none
+ENV LOGFILE=${LOGFILE}
+
+ENV CERT_DIR=/deployment/certs
+ENV LE_DIR=/deployment/letsencrypt
+ENV CHROOT_DIR=/etc/haproxy/webroot
 
 # Install certbot and Route53 DNS plugin
 RUN apk update \
@@ -52,11 +83,12 @@ RUN mkdir -p ${CHROOT_DIR} \
     && chown -R haproxy:haproxy /var/log/letsencrypt \
     && chown -R haproxy:haproxy ${CHROOT_DIR} \
     && chown -R haproxy:haproxy ${CERT_DIR}
-	
+
 RUN apk del tar && \
     rm -f /var/cache/apk/*
 
 ADD haproxy.cfg /etc/haproxy/haproxy.cfg
+ADD haproxy-edge-terminated-tls.cfg /etc/haproxy/haproxy-edge-terminated-tls.cfg
 ADD certs /etc/haproxy/certs
 
 ADD cli.ini /root/.config/letsencrypt/
