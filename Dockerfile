@@ -57,6 +57,7 @@ RUN apk del tar && \
     rm -f /var/cache/apk/*
 
 ADD haproxy.cfg /etc/haproxy/haproxy.cfg
+ADD haproxy-edge-terminated-tls.cfg /etc/haproxy/haproxy-edge-terminated-tls.cfg
 ADD certs /etc/haproxy/certs
 
 ADD cli.ini /root/.config/letsencrypt/

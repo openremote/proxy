@@ -58,3 +58,21 @@ If you use an Ingress, reconfigure the `HTTPS_FORWARDED_PORT` to the HTTPS port 
 
 You will also need to set the `NAMESERVER` environment variable to the cluster DNS (usually 10.96.0.10:53).
 The cluster DNS typically only resolves fully qualified hostnames, so make sure to set these using the `MANAGER_HOST` and `KEYCLOAK_HOST` environment variables (e.g. `manager.default.svc.cluster.local`).
+
+## Edge-Terminated TLS
+
+If TLS is terminated upstream before traffic reaches this pod, for example by an AWS NLB with ACM, an ALB, an ingress controller, or another reverse proxy, then:
+
+* Set `DISABLE_ACME=true` to disable certbot initialization and renewal in the container
+* Use `HAPROXY_CONFIG=/etc/haproxy/haproxy-edge-terminated-tls.cfg`
+* Set `HTTP_PORT` to a non-privileged container port such as `8080`
+* Set `HTTPS_FORWARDED_PORT=443` so upstream services see the original external HTTPS port
+* Configure the upstream load balancer or proxy to forward decrypted HTTP traffic to the pod `HTTP_PORT`
+
+For MQTT in the same setup, if MQTT TLS is also terminated upstream:
+
+* Terminate TLS on the upstream listener (for example external port `8883`)
+* Forward plaintext TCP traffic from that listener to the pod's MQTT port
+* The provided `haproxy-edge-terminated-tls.cfg` listens for MQTT on `MANAGER_MQTT_PORT` and forwards it to the configured manager MQTT backend
+
+The `haproxy-edge-terminated-tls.cfg` file removes local TLS certificate usage from the pod and preserves the usual `X-Forwarded-*` HTTP headers for upstream applications. Do not use this config if HTTPS or MQTT TLS is still passed through to the pod.
