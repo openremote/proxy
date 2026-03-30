@@ -68,10 +68,10 @@ RUN apk update \
 # Add ACME LUA plugin
 ADD acme-plugin.tar.gz /etc/haproxy/lua/
 
-RUN mkdir -p ${CHROOT_DIR} \
-    && mkdir -p ${CERT_DIR} \
+RUN mkdir -p "${CHROOT_DIR}" \
+    && mkdir -p "${CERT_DIR}" \
     && mkdir -p /var/log/letsencrypt \
-    && mkdir -p ${LE_DIR} && chown haproxy:haproxy ${LE_DIR} \
+    && mkdir -p "${LE_DIR}" && chown haproxy:haproxy "${LE_DIR}" \
     && mkdir -p /etc/letsencrypt \
     && mkdir -p /var/lib/letsencrypt \
     && touch /etc/periodic/daily/cert-renew \
@@ -81,8 +81,8 @@ RUN mkdir -p ${CHROOT_DIR} \
     && chown -R haproxy:haproxy /etc/haproxy \
     && chown -R haproxy:haproxy /var/lib/letsencrypt \
     && chown -R haproxy:haproxy /var/log/letsencrypt \
-    && chown -R haproxy:haproxy ${CHROOT_DIR} \
-    && chown -R haproxy:haproxy ${CERT_DIR}
+    && chown -R haproxy:haproxy "${CHROOT_DIR}" \
+    && chown -R haproxy:haproxy "${CERT_DIR}"
 
 RUN apk del tar && \
     rm -f /var/cache/apk/*
