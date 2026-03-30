@@ -12,6 +12,7 @@ on:
   push:
     branches:
         - main
+        - enhancement/anchore-scanning
     tags-ignore:
       - '*.*'
     paths-ignore:
