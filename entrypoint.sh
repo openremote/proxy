@@ -15,6 +15,17 @@ fi
 
 LE_CMD="certbot certonly -n --logs-dir - -w ${CHROOT_DIR} ${LE_EXTRA_ARGS}"
 
+acme_enabled() {
+  case "${DISABLE_ACME}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
 # Configure haproxy
 HAPROXY_CMD="haproxy -W -db -f ${HAPROXY_CONFIG} ${HAPROXY_USER_PARAMS}"
 HAPROXY_RESTART_CMD="kill -s HUP 1"
@@ -73,21 +84,26 @@ run_proxy() {
     log_info "AWS_ROUTE53_ROLE: ${AWS_ROUTE53_ROLE}"
 
     if check_proxy; then
-    
-      log_info "Starting crond"
-      crond
+      start_monitor
 
-      if [ -n "${AWS_ROUTE53_ROLE}" ]; then
-        log_info "Creating AWS CLI config file"
-        mkdir ~/.aws
-        rm -f ~/.aws/config 2> /dev/null
-        echo "[default]" >> ~/.aws/config
-        echo "role_arn = ${AWS_ROUTE53_ROLE}" >> ~/.aws/config
-        echo "credential_source = Ec2InstanceMetadata" >> ~/.aws/config
-        echo "" >> ~/.aws/config
+      if acme_enabled; then
+        log_info "Starting crond"
+        crond
+
+        if [ -n "${AWS_ROUTE53_ROLE}" ]; then
+          log_info "Creating AWS CLI config file"
+          mkdir ~/.aws
+          rm -f ~/.aws/config 2> /dev/null
+          echo "[default]" >> ~/.aws/config
+          echo "role_arn = ${AWS_ROUTE53_ROLE}" >> ~/.aws/config
+          echo "credential_source = Ec2InstanceMetadata" >> ~/.aws/config
+          echo "" >> ~/.aws/config
+        fi
+
+        cert_init&
+      else
+        log_info "ACME is disabled; skipping certbot initialization and renewal"
       fi
-
-      cert_init&
       
       log_info "HAProxy starting"
       exec su haproxy -s /bin/sh -c "$HAPROXY_CMD $HAPROXY_START_OPTIONS"
@@ -127,6 +143,14 @@ restart() {
   else
     log_info "HAProxy config invalid, not restarting..."
   fi
+}
+
+start_monitor() {
+  log_info "Starting monitoring process"
+  (
+    sleep 5
+    monitor
+  )&
 }
 
 add() {
@@ -234,6 +258,10 @@ renew() {
 }
 
 auto_renew() {
+  if ! acme_enabled; then
+    log_info "ACME is disabled; skipping auto renew"
+    return 0
+  fi
   log_info "Executing auto renew at $(date -R)"
   certbot renew --deploy-hook "/entrypoint.sh sync-haproxy"
 }
@@ -390,9 +418,6 @@ cert_init() {
     log_info "HAProxy certs have been modified so restarting"
     restart
   fi
-  
-  log_info "Starting monitoring process"
-  monitor
 }
 
 sync_haproxy() {

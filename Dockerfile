@@ -88,13 +88,14 @@ RUN apk del tar && \
     rm -f /var/cache/apk/*
 
 ADD haproxy.cfg /etc/haproxy/haproxy.cfg
+ADD haproxy-edge-terminated-tls.cfg /etc/haproxy/haproxy-edge-terminated-tls.cfg
 ADD certs /etc/haproxy/certs
 
 ADD cli.ini /root/.config/letsencrypt/
 ADD entrypoint.sh /
 RUN chmod +x /entrypoint.sh
 
-HEALTHCHECK --interval=5s --timeout=3s --start-period=5s --retries=10 CMD curl --fail --silent http://127.0.0.1/docker-health || exit 1
+HEALTHCHECK --interval=5s --timeout=3s --start-period=5s --retries=10 CMD curl --fail --silent "http://127.0.0.1:${HTTP_PORT}/docker-health" || exit 1
 
 RUN chown -R haproxy:haproxy /etc/haproxy
 
