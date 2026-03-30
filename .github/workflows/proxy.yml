@@ -4,6 +4,8 @@ name: Docker Image
 
 # Controls when the action will run. 
 on:
+  workflow_dispatch:
+
   # When a release is published
   release:
     types: [published]
@@ -12,10 +14,15 @@ on:
   push:
     branches:
         - main
+        - enhancement/anchore-scanning
     tags-ignore:
       - '*.*'
     paths-ignore:
       - '**/*.md'
+
+permissions:
+  contents: read
+  security-events: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -32,11 +39,14 @@ jobs:
 
     steps:
       - name: Set tags
+        id: set-tags
         run: |
           if [ -z "$TAG" ]; then
             echo "TAG=-t openremote/proxy:develop" >> $GITHUB_ENV
+            echo "dockerImage=openremote/proxy:develop" >> $GITHUB_OUTPUT
           else
             echo "TAG=-t openremote/proxy:latest -t openremote/proxy:$TAG" >> $GITHUB_ENV
+            echo "dockerImage=openremote/proxy:$TAG" >> $GITHUB_OUTPUT
           fi
         env:
           TAG: ${{ github.event.release.tag_name }}
@@ -67,3 +77,21 @@ jobs:
       - name: build and push images
         run: |
           docker build --build-arg GIT_COMMIT=${{ github.sha }} --push --platform $PLATFORM $TAG .
+
+      - name: Scan manager docker image
+        uses: anchore/scan-action@3c9a191a0fbab285ca6b8530b5de5a642cba332f # v7.2.2
+        id: anchore-scan
+        with:
+          image: ${{ steps.set-tags.outputs.dockerImage }}
+          fail-build: false
+          severity-cutoff: critical
+
+      - name: Upload Anchore scan SARIF report
+        if: ${{ !cancelled() }}
+        uses: github/codeql-action/upload-sarif@c8e3174949dcd2ceb71718aeaa53fee4dc9052f2 # v4.31.7
+        with:
+          sarif_file: ${{ steps.anchore-scan.outputs.sarif }}
+
+      - name: Inspect Anchore scan SARIF report
+        if: ${{ !cancelled() }}
+        run: cat ${{ steps.anchore-scan.outputs.sarif }}
