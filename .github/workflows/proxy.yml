@@ -4,6 +4,8 @@ name: Docker Image
 
 # Controls when the action will run. 
 on:
+  workflow_dispatch:
+
   # When a release is published
   release:
     types: [published]
