@@ -84,6 +84,8 @@ run_proxy() {
     log_info "AWS_ROUTE53_ROLE: ${AWS_ROUTE53_ROLE}"
 
     if check_proxy; then
+      start_monitor
+
       if acme_enabled; then
         log_info "Starting crond"
         crond
@@ -141,6 +143,14 @@ restart() {
   else
     log_info "HAProxy config invalid, not restarting..."
   fi
+}
+
+start_monitor() {
+  log_info "Starting monitoring process"
+  (
+    sleep 5
+    monitor
+  )&
 }
 
 add() {
@@ -408,9 +418,6 @@ cert_init() {
     log_info "HAProxy certs have been modified so restarting"
     restart
   fi
-  
-  log_info "Starting monitoring process"
-  monitor
 }
 
 sync_haproxy() {
