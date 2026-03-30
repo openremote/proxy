@@ -4,6 +4,8 @@ name: Docker Image
 
 # Controls when the action will run. 
 on:
+  workflow_call:
+
   # When a release is published
   release:
     types: [published]
@@ -12,6 +14,7 @@ on:
   push:
     branches:
         - main
+        - enhancement/sonarqube
     tags-ignore:
       - '*.*'
     paths-ignore:
@@ -92,3 +95,8 @@ jobs:
       - name: Inspect Anchore scan SARIF report
         if: ${{ !cancelled() }}
         run: cat ${{ steps.anchore-scan.outputs.sarif }}
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@a31c9398be7ace6bbfaf30c0bd5d415f843d45e9 # v7.0.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
