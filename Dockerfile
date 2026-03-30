@@ -61,7 +61,7 @@ ENV CHROOT_DIR=/etc/haproxy/webroot
 
 # Install certbot and Route53 DNS plugin
 RUN apk update \
-    && apk add --no-cache certbot py-pip inotify-tools tar curl openssl \
+    && apk add --no-cache certbot curl inotify-tools openssl py-pip tar \
     && rm -f /var/cache/apk/* \
     && pip install certbot-dns-route53 --break-system-packages
 
