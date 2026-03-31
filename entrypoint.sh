@@ -140,9 +140,11 @@ restart() {
   if check_proxy; then
     log_info "Config is valid so requesting restart..."
     $HAPROXY_RESTART_CMD
-  else
-    log_info "HAProxy config invalid, not restarting..."
+    return $?
   fi
+
+  log_info "HAProxy config invalid, not restarting..."
+  return 1
 }
 
 start_monitor() {
@@ -423,7 +425,7 @@ cert_init() {
 sync_haproxy() {
   if [ -z "$RENEWED_LINEAGE" ]; then
     log_error "sync-haproxy expect RENEWED_LINEAGE variable to be set"
-    exit 1
+    return 1
   fi
 
   DOMAIN_FOLDER="$RENEWED_LINEAGE"
@@ -433,8 +435,9 @@ sync_haproxy() {
 
   cat "${DOMAIN_FOLDER}/privkey.pem" \
    "${DOMAIN_FOLDER}/fullchain.pem" \
-   > "/tmp/haproxy.pem"
-   mv "/tmp/haproxy.pem" "${CERT_DIR}/${DOMAIN}"
+   > "/tmp/haproxy.pem" || return $?
+  mv "/tmp/haproxy.pem" "${CERT_DIR}/${DOMAIN}"
+  return $?
 }
 
 if [ $# -eq 0 ]
