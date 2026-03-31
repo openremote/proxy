@@ -61,17 +61,17 @@ ENV CHROOT_DIR=/etc/haproxy/webroot
 
 # Install certbot and Route53 DNS plugin
 RUN apk update \
-    && apk add --no-cache certbot py-pip inotify-tools tar curl openssl \
+    && apk add --no-cache certbot curl inotify-tools openssl py-pip tar \
     && rm -f /var/cache/apk/* \
     && pip install certbot-dns-route53 --break-system-packages
 
 # Add ACME LUA plugin
 ADD acme-plugin.tar.gz /etc/haproxy/lua/
 
-RUN mkdir -p ${CHROOT_DIR} \
-    && mkdir -p ${CERT_DIR} \
+RUN mkdir -p "${CHROOT_DIR}" \
+    && mkdir -p "${CERT_DIR}" \
     && mkdir -p /var/log/letsencrypt \
-    && mkdir -p ${LE_DIR} && chown haproxy:haproxy ${LE_DIR} \
+    && mkdir -p "${LE_DIR}" && chown haproxy:haproxy "${LE_DIR}" \
     && mkdir -p /etc/letsencrypt \
     && mkdir -p /var/lib/letsencrypt \
     && touch /etc/periodic/daily/cert-renew \
@@ -81,18 +81,18 @@ RUN mkdir -p ${CHROOT_DIR} \
     && chown -R haproxy:haproxy /etc/haproxy \
     && chown -R haproxy:haproxy /var/lib/letsencrypt \
     && chown -R haproxy:haproxy /var/log/letsencrypt \
-    && chown -R haproxy:haproxy ${CHROOT_DIR} \
-    && chown -R haproxy:haproxy ${CERT_DIR}
+    && chown -R haproxy:haproxy "${CHROOT_DIR}" \
+    && chown -R haproxy:haproxy "${CERT_DIR}"
 
 RUN apk del tar && \
     rm -f /var/cache/apk/*
 
-ADD haproxy.cfg /etc/haproxy/haproxy.cfg
-ADD haproxy-edge-terminated-tls.cfg /etc/haproxy/haproxy-edge-terminated-tls.cfg
-ADD certs /etc/haproxy/certs
+COPY haproxy.cfg /etc/haproxy/haproxy.cfg
+COPY haproxy-edge-terminated-tls.cfg /etc/haproxy/haproxy-edge-terminated-tls.cfg
+COPY certs /etc/haproxy/certs
 
-ADD cli.ini /root/.config/letsencrypt/
-ADD entrypoint.sh /
+COPY cli.ini /root/.config/letsencrypt/
+COPY entrypoint.sh /
 RUN chmod +x /entrypoint.sh
 
 HEALTHCHECK --interval=5s --timeout=3s --start-period=5s --retries=10 CMD curl --fail --silent "http://127.0.0.1:${HTTP_PORT}/docker-health" || exit 1
