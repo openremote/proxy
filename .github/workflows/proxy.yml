@@ -4,8 +4,6 @@ name: Docker Image
 
 # Controls when the action will run. 
 on:
-  workflow_call:
-
   # When a release is published
   release:
     types: [published]
@@ -14,7 +12,6 @@ on:
   push:
     branches:
         - main
-        - enhancement/sonarqube
     tags-ignore:
       - '*.*'
     paths-ignore:
