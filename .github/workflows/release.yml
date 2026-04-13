@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      VERSION:
+        description: 'Release version/tag to create (example: 2.9.15.1)'
+        type: string
+        required: true
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate version
+        shell: bash
+        run: |
+          if [[ -z "${VERSION}" ]]; then
+            echo "VERSION is required"
+            exit 1
+          fi
+
+          if git ls-remote --tags origin "refs/tags/${VERSION}" | grep -q "refs/tags/${VERSION}$"; then
+            echo "Tag ${VERSION} already exists on origin"
+            exit 1
+          fi
+        env:
+          VERSION: ${{ github.event.inputs.VERSION }}
+
+      - name: Create and push tag
+        shell: bash
+        run: |
+          git tag "${VERSION}"
+          git push origin "${VERSION}"
+        env:
+          VERSION: ${{ github.event.inputs.VERSION }}
+
+      - name: Create GitHub release
+        shell: bash
+        run: |
+          gh release create "${VERSION}" \
+            --generate-notes \
+            --title "${VERSION}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.event.inputs.VERSION }}
+
+      - name: Trigger Docker workflow
+        shell: bash
+        run: |
+          gh workflow run proxy.yml --ref "${VERSION}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.event.inputs.VERSION }}
