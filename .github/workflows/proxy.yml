@@ -1,99 +1,152 @@
-# This is a basic workflow to help you get started with Actions
-
 name: Docker Image
 
-# Controls when the action will run. 
 on:
   # When a release is published
   release:
     types: [published]
 
-  # Push excluding tags and workflow changes
+  # Push excluding tags and Markdown-only changes
   push:
     branches:
-        - main
+      - main
     tags-ignore:
       - '*.*'
     paths-ignore:
       - '**/*.md'
+
+  # Validate pull requests without publishing
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+
+  # Manual trigger
+  workflow_dispatch:
 
 permissions:
   contents: read
   security-events: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.ref }}
   cancel-in-progress: true
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+env:
+  IMAGE_NAME: ${{ vars.DOCKERHUB_NAMESPACE || github.repository_owner }}/proxy
+  PLATFORM: linux/amd64,linux/arm64
+  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
 jobs:
   image_proxy:
-
-    env:
-      PLATFORM: linux/amd64,linux/aarch64
-
+    name: Build images
     runs-on: ubuntu-latest
 
     steps:
-      - name: Set tags
-        id: set-tags
-        run: |
-          if [ -z "$TAG" ]; then
-            echo "TAG=-t openremote/proxy:develop" >> $GITHUB_ENV
-            echo "dockerImage=openremote/proxy:develop" >> $GITHUB_OUTPUT
-          else
-            echo "TAG=-t openremote/proxy:latest -t openremote/proxy:$TAG" >> $GITHUB_ENV
-            echo "dockerImage=openremote/proxy:$TAG" >> $GITHUB_OUTPUT
-          fi
-        env:
-          TAG: ${{ github.event.release.tag_name }}
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
-
-      - name: set up QEMU
-        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
         with:
           platforms: all
 
-      - name: install buildx
-        id: buildx
-        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3
-        with:
-          version: latest
-          install: true
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
-      - name: available platforms
-        run: echo ${{ steps.buildx.outputs.platforms }}
-
-      - name: Login to DockerHub
-        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           username: ${{ secrets._TEMP_DOCKERHUB_USER }}
           password: ${{ secrets._TEMP_DOCKERHUB_PASSWORD }}
 
-      - name: build and push images
+      - name: Compute image metadata
+        id: meta
+        shell: bash
         run: |
-          docker build --build-arg GIT_COMMIT=${{ github.sha }} --push --platform $PLATFORM $TAG .
+          VERSION=""
+          IS_VERSIONED="false"
+          PRIMARY_TAG=""
+          PUSH_TAGS=""
 
-      - name: Scan manager docker image
-        uses: anchore/scan-action@3c9a191a0fbab285ca6b8530b5de5a642cba332f # v7.2.2
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            VERSION="${{ github.event.release.tag_name }}"
+            IS_VERSIONED="true"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            if [[ "${{ github.ref_type }}" == "tag" ]]; then
+              VERSION="${{ github.ref_name }}"
+              IS_VERSIONED="true"
+            elif [[ "${{ github.ref }}" != "refs/heads/main" ]]; then
+              echo "workflow_dispatch must be run on main or on a tag"
+              exit 1
+            fi
+          fi
+
+          if [[ "$IS_VERSIONED" == "true" ]]; then
+            PRIMARY_TAG="${IMAGE_NAME}:${VERSION}"
+            PUSH_TAGS="${IMAGE_NAME}:${VERSION}
+          ${IMAGE_NAME}:latest"
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            PRIMARY_TAG="${IMAGE_NAME}:develop"
+            PUSH_TAGS="${IMAGE_NAME}:develop"
+          else
+            PRIMARY_TAG="${IMAGE_NAME}:pr-${{ github.event.pull_request.number || github.run_number }}"
+            PUSH_TAGS="${PRIMARY_TAG}"
+          fi
+
+          {
+            echo "version=$VERSION"
+            echo "is_versioned=$IS_VERSIONED"
+            echo "primary_tag=$PRIMARY_TAG"
+            echo "push_tags<<EOF"
+            echo "$PUSH_TAGS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build image locally for scanning
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ${{ steps.meta.outputs.primary_tag }}
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
+          cache-from: type=gha,scope=proxy-amd64
+          cache-to: type=gha,mode=max,scope=proxy-amd64
+
+      - name: Scan proxy Docker image
+        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
         id: anchore-scan
         with:
-          image: ${{ steps.set-tags.outputs.dockerImage }}
+          image: ${{ steps.meta.outputs.primary_tag }}
           fail-build: false
           severity-cutoff: critical
 
       - name: Upload Anchore scan SARIF report
-        if: ${{ !cancelled() }}
-        uses: github/codeql-action/upload-sarif@c8e3174949dcd2ceb71718aeaa53fee4dc9052f2 # v4.31.7
+        if: ${{ !cancelled() && github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main') }}
+        uses: github/codeql-action/upload-sarif@c10b8064de6f491fea524254123dbe5e09572f13 # v4.35.1
         with:
           sarif_file: ${{ steps.anchore-scan.outputs.sarif }}
+          category: grype-proxy
 
-      - name: Inspect Anchore scan SARIF report
-        if: ${{ !cancelled() }}
-        run: cat ${{ steps.anchore-scan.outputs.sarif }}
+      - name: Build and push multi-arch images
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        with:
+          context: .
+          platforms: ${{ env.PLATFORM }}
+          push: true
+          tags: ${{ steps.meta.outputs.push_tags }}
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
+          cache-from: type=gha,scope=proxy-multiarch
+          cache-to: type=gha,mode=max,scope=proxy-multiarch
 
+      # Skip SonarQube when SONAR_TOKEN is not configured, and also skip fork PRs because repository secrets are not exposed there
       - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@a31c9398be7ace6bbfaf30c0bd5d415f843d45e9 # v7.0.0
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        if: ${{ env.SONAR_TOKEN != '' && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork) }}
+        uses: SonarSource/sonarqube-scan-action@299e4b793aaa83bf2aba7c9c14bedbb485688ec4 # v7.1.0
+
