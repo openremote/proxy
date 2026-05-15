@@ -35,6 +35,7 @@ HAPROXY_CHECK_CONFIG_CMD="haproxy -f ${HAPROXY_CONFIG} -c"
 mkdir -p $LE_DIR/live
 mkdir -p $CERT_DIR
 mkdir -p $CUSTOM_CERT_DIR
+mkdir -p /etc/haproxy/certs
 
 if [ "$DOMAINNAME" == 'localhost' ]; then
   # To maintain support for existing setups
