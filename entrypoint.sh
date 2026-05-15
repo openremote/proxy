@@ -88,6 +88,9 @@ run_proxy() {
 
     ensure_selfsigned_cert
 
+    log_info "Custom certs:"
+    ls -al ${CUSTOM_CERT_DIR}
+
     if check_proxy; then
       start_monitor
 
