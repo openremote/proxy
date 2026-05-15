@@ -7,7 +7,7 @@ HAProxy docker image with Lets Encrypt SSL auto renewal using certbot with built
 ## Environment variables
 
 * `CERT_DIR` - Automatically generated full chain PEM certificates directory (live reload of HA Proxy on changes) \[default: `/deployment/certs`\]
-* `CUSTOM_CERT_DIR` - Additional custom full chain PEM certificates directory loaded by HAProxy but not managed by certbot \[default: `/custom/proxy/certs`\]
+* `CUSTOM_CERT_DIR` - Additional custom full chain PEM certificates directory loaded by HAProxy but not managed by certbot \[default: `/data/proxy/certs`\]
 * `LE_DIR` - Certbot config directory where generated certificates are stored \[default: `/deployment/letsencrypt`\]
 * \[DEPRECATED\] `DOMAINNAME` - IANA TLD subdomain for which a Lets Encrypt certificate should be requested
 * `DOMAINNAMES` - Comma separated list of IANA TLD subdomain names for which Lets Encrypt certificates should be 

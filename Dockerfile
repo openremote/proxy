@@ -56,7 +56,7 @@ ARG LOGFILE=none
 ENV LOGFILE=${LOGFILE}
 
 ENV CERT_DIR=/deployment/certs
-ENV CUSTOM_CERT_DIR=/custom/proxy/certs
+ENV CUSTOM_CERT_DIR=/data/proxy/certs
 ENV LE_DIR=/deployment/letsencrypt
 ENV CHROOT_DIR=/etc/haproxy/webroot
 
