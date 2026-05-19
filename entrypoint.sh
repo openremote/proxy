@@ -32,8 +32,10 @@ HAPROXY_RESTART_CMD="kill -s HUP 1"
 HAPROXY_CHECK_CONFIG_CMD="haproxy -f ${HAPROXY_CONFIG} -c"
 
 # Make dirs and files
-mkdir -p /deployment/letsencrypt/live
-mkdir -p /deployment/certs
+mkdir -p $LE_DIR/live
+mkdir -p $CERT_DIR
+mkdir -p $CUSTOM_CERT_DIR
+mkdir -p /etc/haproxy/certs
 
 if [ "$DOMAINNAME" == 'localhost' ]; then
   # To maintain support for existing setups
@@ -79,9 +81,15 @@ run_proxy() {
     log_info "PROXY_LOGLEVEL: ${PROXY_LOGLEVEL}"
     log_info "LUA_PATH: ${LUA_PATH}"
     log_info "CERT_DIR: ${CERT_DIR}"
+    log_info "CUSTOM_CERT_DIR: ${CUSTOM_CERT_DIR}"
     log_info "LE_DIR: ${LE_DIR}"
     log_info "LE_CMD: ${LE_CMD}"
     log_info "AWS_ROUTE53_ROLE: ${AWS_ROUTE53_ROLE}"
+
+    ensure_selfsigned_cert
+
+    log_info "Custom certs:"
+    ls -al ${CUSTOM_CERT_DIR}
 
     if check_proxy; then
       start_monitor
@@ -123,10 +131,10 @@ run_proxy() {
 
 monitor() {
   while true; do
-    log_info "Monitoring config file '$HAPROXY_CONFIG' and certs in '$CERT_DIR' for changes..."
+    log_info "Monitoring config file '$HAPROXY_CONFIG' and certs in '/etc/haproxy/certs', '$CERT_DIR' and '$CUSTOM_CERT_DIR' for changes..."
 
     # Wait if config or certificates were changed, block this execution
-    inotifywait -q -r --exclude '\.git/' -e modify,create,delete,move,move_self "$HAPROXY_CONFIG" "$CERT_DIR"
+    inotifywait -q -r --exclude '\.git/' -e modify,create,delete,move,move_self "$HAPROXY_CONFIG" "/etc/haproxy/certs" "$CERT_DIR" "$CUSTOM_CERT_DIR"
     log_info "Change detected..." &&
     sleep 5 &&
     restart
@@ -260,6 +268,8 @@ renew() {
 }
 
 auto_renew() {
+  ensure_selfsigned_cert
+
   if ! acme_enabled; then
     log_info "ACME is disabled; skipping auto renew"
     return 0
@@ -367,10 +377,6 @@ cert_init() {
       rm -rf "${LE_DIR}/live/${FNAME}" 2>/dev/null
       add "${DOMAIN}"
     fi
-    if [ $i -eq 1 ]; then
-        log_info "Symlinking first domain to built in cert directory to take precedence over self signed cert"
-        ln -sfT ${CERT_DIR}/${FNAME} /etc/haproxy/certs/00-cert
-    fi
   done
   IFS=$IFS_OLD
 
@@ -420,6 +426,9 @@ cert_init() {
     log_info "HAProxy certs have been modified so restarting"
     restart
   fi
+
+  # cert_init runs in the background; startup should continue even if certificate initialization fails.
+  return 0
 }
 
 sync_haproxy() {
@@ -438,6 +447,32 @@ sync_haproxy() {
    > "/tmp/haproxy.pem" || return $?
   mv "/tmp/haproxy.pem" "${CERT_DIR}/${DOMAIN}"
   return $?
+}
+
+ensure_selfsigned_cert() {
+  SELF_SIGNED_CERT="/etc/haproxy/certs/00-selfsigned"
+  mkdir -p /etc/haproxy/certs
+
+  # Check if self-signed cert exists and is valid for at least 30 more days (2592000 seconds)
+  if [ -f "$SELF_SIGNED_CERT" ]; then
+    if openssl x509 -checkend 2592000 -noout -in "$SELF_SIGNED_CERT" >/dev/null 2>&1; then
+      return 0
+    else
+      log_info "Self-signed certificate is expired or expiring within 30 days. Regenerating..."
+    fi
+  else
+    log_info "No self-signed HAProxy certificate found; generating one."
+  fi
+
+  # Generate a new certificate valid for 365 days
+  openssl req -x509 -nodes -newkey rsa:2048 -sha256 -days 365 \
+    -subj "/CN=localhost" \
+    -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
+    -keyout /tmp/selfsigned.key \
+    -out /tmp/selfsigned.crt || return $?
+
+  cat /tmp/selfsigned.key /tmp/selfsigned.crt > "$SELF_SIGNED_CERT"
+  rm -f /tmp/selfsigned.key /tmp/selfsigned.crt
 }
 
 if [ $# -eq 0 ]
