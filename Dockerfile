@@ -64,7 +64,7 @@ ENV CHROOT_DIR=/etc/haproxy/webroot
 RUN apk update \
     && apk add --no-cache certbot curl inotify-tools openssl py-pip tar \
     && rm -f /var/cache/apk/* \
-    && pip install certbot-dns-route53 --break-system-packages
+    && pip install --only-binary :all: certbot-dns-route53==5.6.0 --break-system-packages
 
 # Add ACME LUA plugin
 ADD acme-plugin.tar.gz /etc/haproxy/lua/
