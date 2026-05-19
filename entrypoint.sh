@@ -426,6 +426,9 @@ cert_init() {
     log_info "HAProxy certs have been modified so restarting"
     restart
   fi
+
+  # cert_init runs in the background; startup should continue even if certificate initialization fails.
+  return 0
 }
 
 sync_haproxy() {
