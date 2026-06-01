@@ -56,6 +56,7 @@ ARG LOGFILE=none
 ENV LOGFILE=${LOGFILE}
 
 ENV CERT_DIR=/deployment/certs
+ENV CUSTOM_CERT_DIR=/data/proxy/certs
 ENV LE_DIR=/deployment/letsencrypt
 ENV CHROOT_DIR=/etc/haproxy/webroot
 
@@ -63,15 +64,17 @@ ENV CHROOT_DIR=/etc/haproxy/webroot
 RUN apk update \
     && apk add --no-cache certbot curl inotify-tools openssl py-pip tar \
     && rm -f /var/cache/apk/* \
-    && pip install certbot-dns-route53 --break-system-packages
+    && pip install --only-binary :all: certbot-dns-route53==5.6.0 --break-system-packages
 
 # Add ACME LUA plugin
 ADD acme-plugin.tar.gz /etc/haproxy/lua/
 
 RUN mkdir -p "${CHROOT_DIR}" \
     && mkdir -p "${CERT_DIR}" \
+    && mkdir -p "${CUSTOM_CERT_DIR}" \
     && mkdir -p /var/log/letsencrypt \
-    && mkdir -p "${LE_DIR}" && chown haproxy:haproxy "${LE_DIR}" \
+    && mkdir -p "${LE_DIR}" \
+    && mkdir -p /etc/haproxy/certs \
     && mkdir -p /etc/letsencrypt \
     && mkdir -p /var/lib/letsencrypt \
     && touch /etc/periodic/daily/cert-renew \
@@ -82,14 +85,16 @@ RUN mkdir -p "${CHROOT_DIR}" \
     && chown -R haproxy:haproxy /var/lib/letsencrypt \
     && chown -R haproxy:haproxy /var/log/letsencrypt \
     && chown -R haproxy:haproxy "${CHROOT_DIR}" \
-    && chown -R haproxy:haproxy "${CERT_DIR}"
+    && chown -R haproxy:haproxy "${CERT_DIR}" \
+    && chown -R haproxy:haproxy "${CUSTOM_CERT_DIR}" \
+    && chown -R haproxy:haproxy "${LE_DIR}" \
+    && chown -R haproxy:haproxy /etc/haproxy/certs
 
 RUN apk del tar && \
     rm -f /var/cache/apk/*
 
 COPY haproxy.cfg /etc/haproxy/haproxy.cfg
 COPY haproxy-edge-terminated-tls.cfg /etc/haproxy/haproxy-edge-terminated-tls.cfg
-COPY certs /etc/haproxy/certs
 
 COPY cli.ini /root/.config/letsencrypt/
 COPY entrypoint.sh /
