@@ -44,19 +44,19 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
         with:
           platforms: all
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Log in to Docker Hub
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        uses: docker/login-action@06fb636fac595d6fb4b28a5dfcb21a6f5091859c # v4.5.0
         with:
           username: ${{ secrets._TEMP_DOCKERHUB_USER }}
           password: ${{ secrets._TEMP_DOCKERHUB_PASSWORD }}
@@ -105,7 +105,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Build image locally for scanning
-        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           platforms: linux/amd64
@@ -127,14 +127,14 @@ jobs:
 
       - name: Upload Anchore scan SARIF report
         if: ${{ !cancelled() && github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main') }}
-        uses: github/codeql-action/upload-sarif@c10b8064de6f491fea524254123dbe5e09572f13 # v4.35.1
+        uses: github/codeql-action/upload-sarif@e58424170fb0262c8d7ed60a2e84b9bffe205c67 # codeql-bundle-v2.26.1
         with:
           sarif_file: ${{ steps.anchore-scan.outputs.sarif }}
           category: grype-proxy
 
       - name: Build and push multi-arch images
         if: github.event_name != 'pull_request'
-        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           platforms: ${{ env.PLATFORM }}
@@ -148,5 +148,5 @@ jobs:
       # Skip SonarQube when SONAR_TOKEN is not configured, and also skip fork PRs because repository secrets are not exposed there
       - name: SonarQube Scan
         if: ${{ env.SONAR_TOKEN != '' && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork) }}
-        uses: SonarSource/sonarqube-scan-action@299e4b793aaa83bf2aba7c9c14bedbb485688ec4 # v7.1.0
+        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
 
