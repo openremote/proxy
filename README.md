@@ -36,7 +36,7 @@ requested; wildcard domains should be specified with an '*' (e.g. `*.example.com
 
 ## Custom certificate format
 
-Any custom certificate volume mapped into `/etc/haproxy/certs` should be in PEM format and must include the full certificate chain and the private key, i.e.:
+Any custom certificate volume mapped into `CUSTOM_CERT_DIR` should be in PEM format and must include the full certificate chain and the private key, i.e.:
 ```shell
 cat privkey.pem cert.pem chain.pem > ssl-certs.pem
 ```
